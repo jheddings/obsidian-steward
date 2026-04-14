@@ -1,4 +1,4 @@
-# obsidian-claude
+# obsidian-steward
 
 A Claude Code plugin with skills for maintaining Obsidian vaults. Run from your vault's
 root directory — these skills work with vault files directly, not through Obsidian
@@ -22,6 +22,6 @@ maintenance and hygiene.
 ## Installation
 
 ```bash
-/plugin marketplace add jheddings/obsidian-skills
-/plugin install obsidian-claude@obsidian-skills
+/plugin marketplace add jheddings/obsidian-steward
+/plugin install tidy@obsidian-steward
 ```

@@ -1,12 +1,12 @@
 {
-    "name": "obsidian-claude",
+    "name": "tidy",
     "description": "Vault maintenance skills for Obsidian",
     "version": "0.1.0",
     "author": {
         "name": "jheddings"
     },
-    "homepage": "https://github.com/jheddings/obsidian-skills",
-    "repository": "https://github.com/jheddings/obsidian-skills",
+    "homepage": "https://github.com/jheddings/obsidian-steward",
+    "repository": "https://github.com/jheddings/obsidian-steward",
     "license": "MIT",
     "keywords": ["obsidian", "vault", "maintenance"]
 }

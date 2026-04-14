@@ -1,11 +1,11 @@
 {
-    "name": "obsidian-skills",
+    "name": "obsidian-steward",
     "owner": {
         "name": "jheddings"
     },
     "plugins": [
         {
-            "name": "obsidian-claude",
+            "name": "tidy",
             "source": "./",
             "description": "Vault maintenance skills for Obsidian",
             "version": "0.1.0"
