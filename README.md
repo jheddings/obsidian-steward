@@ -11,6 +11,12 @@ root directory — these skills work with vault files directly, not through Obsi
 | `orphaned-files` | Find unreferenced files in the attachments folder or any specified folder |
 | `empty-folders` | Find and optionally remove empty directories |
 
+## Related
+
+This plugin is complementary to [obsidian-skills](https://github.com/kepano/obsidian-skills),
+which focuses on content creation (writing markdown, bases, canvas files). This plugin focuses
+on vault maintenance and hygiene.
+
 ## Installation
 
 TBD
