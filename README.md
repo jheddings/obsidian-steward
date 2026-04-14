@@ -1,7 +1,8 @@
 # obsidian-claude
 
-A Claude Code plugin with skills for maintaining Obsidian vaults. Run from your vault's root
-directory — these skills work with vault files directly, not through Obsidian itself.
+A Claude Code plugin with skills for maintaining Obsidian vaults. Run from your vault's
+root directory — these skills work with vault files directly, not through Obsidian
+itself.
 
 ## Skills
 
@@ -13,8 +14,9 @@ directory — these skills work with vault files directly, not through Obsidian 
 
 ## Related
 
-This plugin is complementary to [obsidian-skills](https://github.com/kepano/obsidian-skills), which
-focuses on content creation (writing markdown, bases, canvas files). This plugin focuses on vault
+This plugin is complementary to
+[obsidian-skills](https://github.com/kepano/obsidian-skills), which focuses on content
+creation (writing markdown, bases, canvas files). This plugin focuses on vault
 maintenance and hygiene.
 
 ## Installation
