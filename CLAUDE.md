@@ -24,3 +24,25 @@ Each skill lives in `skills/<skill-name>/SKILL.md` with YAML frontmatter (`name`
   `rmdir`, `stat`)
 - Skills that dispatch subagents must repeat tool usage constraints in the subagent prompt
 - All skills use `.obsidian/app.json` via Read for vault detection
+
+## Commits
+
+Use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <description>
+```
+
+**Types:** `feat`, `fix`, `chore`, `docs`, `refactor`, `test`
+
+**Scope:** Optional but encouraged (e.g., `feat(check-links): ...`, `fix(orphaned-files): ...`)
+
+## Branches
+
+Use the same type prefixes:
+
+```
+<type>/<change-slug>
+```
+
+**Examples:** `feat/orphaned-notes`, `fix/wikilink-resolution`, `chore/update-readme`
