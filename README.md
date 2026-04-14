@@ -8,6 +8,7 @@ root directory — these skills work with vault files directly, not through Obsi
 | Skill | Description |
 |-------|-------------|
 | `check-links` | Find broken wikilinks, markdown relative links, and cross-vault `obsidian://` links |
+| `orphaned-files` | Find unreferenced files in the attachments folder or any specified folder |
 
 ## Installation
 
