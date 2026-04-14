@@ -154,15 +154,15 @@ vault.
 
 | Pattern                  | Example                                           | Resolution                        |
 | ------------------------ | ------------------------------------------------- | --------------------------------- |
-| Wikilink                 | `[[Puerto Vallarta, Mexico]]`                     | Search vault by filename          |
-| Aliased wikilink         | `[[2022-04-18 Travel Log\|Hedd-Quez 2022]]`       | Target is before the `\|`         |
+| Wikilink                 | `[[Meeting Notes]]`                               | Search vault by filename          |
+| Aliased wikilink         | `[[2024-01-15 Project Log\|Q1 Review]]`           | Target is before the `\|`         |
 | Embedded file            | `![[IMG_6787.jpeg]]`                              | Same as wikilink                  |
 | Embedded with size/alias | `![[Untitled 4.png\|Untitled 4.png]]`             | Target is before the `\|`         |
 | Markdown relative link   | `[text](relative/path.md)`                        | Resolve relative to source file   |
 | Cross-vault link         | `[text](obsidian://open?vault=Workbook&file=...)` | Not relevant for orphan detection |
 | External URL             | `[text](https://...)`                             | Not checked                       |
-| Frontmatter wikilink     | `place: "[[Puerto Vallarta, Mexico]]"`            | Same as wikilink                  |
-| Frontmatter string       | `banner: Aguada Puerto Rico`                      | Implicit reference — not checked  |
+| Frontmatter wikilink     | `place: "[[Meeting Notes]]"`                      | Same as wikilink                  |
+| Frontmatter string       | `banner: Sunset Beach Landscape`                  | Implicit reference — not checked  |
 
 ## Safety Rules
 

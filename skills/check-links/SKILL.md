@@ -74,6 +74,8 @@ Dispatch THREE parallel subagents using the Agent tool, one per link format. All
 >
 > - `[[target]]` → `target`
 > - `[[target|alias]]` → `target` (before the first `|`)
+> - `[[target\|alias]]` → `target` (the `\|` is an escaped pipe used inside markdown
+>   table cells — strip the backslash, then split on `|`)
 > - `![[target]]` → `target` (strip `!`)
 > - `![[target|size]]` → `target` (before `|`)
 > - Frontmatter values like `place: "[[target]]"` → `target`
@@ -112,9 +114,15 @@ Dispatch THREE parallel subagents using the Agent tool, one per link format. All
 > - Filter OUT any URL that starts with `http://`, `https://`, `obsidian://`, or `#`
 > - Build a list of `source_file → relative_target` pairs
 >
-> **Step 2 — Verify each link.** For each pair, resolve the relative path against the
-> source file's directory. Use `test -f` in Bash to check if the resolved path exists.
-> Collect only the broken ones.
+> **Step 2 — Verify each link.** For each pair:
+>
+> 1. Resolve the relative path against the source file's directory. Use `test -f` in
+>    Bash to check if the resolved path exists.
+> 2. If the file is NOT found relative to the source, extract the filename (last path
+>    component) and use Glob with pattern `**/{filename}` at `{VAULT_ROOT}` to search
+>    vault-wide. Obsidian resolves attachments vault-wide, not just relative to the
+>    note's folder.
+> 3. Only mark as broken if both the relative check AND the vault-wide search fail.
 >
 > **Step 3 — Report.** Return a markdown table: `Source File | Target Path`. Only broken
 > links. If none, say "No broken relative links found."
@@ -172,15 +180,16 @@ in an Obsidian vault.
 
 | Pattern                  | Example                                           | Resolution                          |
 | ------------------------ | ------------------------------------------------- | ----------------------------------- |
-| Wikilink                 | `[[Puerto Vallarta, Mexico]]`                     | Search vault by filename            |
-| Aliased wikilink         | `[[2022-04-18 Travel Log\|Hedd-Quez 2022]]`       | Target is before the `\|`           |
+| Wikilink                 | `[[Meeting Notes]]`                               | Search vault by filename            |
+| Aliased wikilink         | `[[2024-01-15 Project Log\|Q1 Review]]`           | Target is before the `\|`           |
+| Aliased wikilink (table) | `[[Jane Smith\|Smith]]`                           | Strip `\` before `\|`, then split   |
 | Embedded file            | `![[IMG_6787.jpeg]]`                              | Same as wikilink                    |
 | Embedded with size/alias | `![[Untitled 4.png\|Untitled 4.png]]`             | Target is before the `\|`           |
 | Markdown relative link   | `[text](relative/path.md)`                        | Resolve relative to source file     |
 | Cross-vault link         | `[text](obsidian://open?vault=Workbook&file=...)` | Decode file param, check peer vault |
 | External URL             | `[text](https://...)`                             | Not checked                         |
-| Frontmatter wikilink     | `place: "[[Puerto Vallarta, Mexico]]"`            | Same as wikilink                    |
-| Frontmatter string       | `banner: Aguada Puerto Rico`                      | Implicit reference — not checked    |
+| Frontmatter wikilink     | `place: "[[Meeting Notes]]"`                      | Same as wikilink                    |
+| Frontmatter string       | `banner: Sunset Beach Landscape`                  | Implicit reference — not checked    |
 
 ## Safety Rules
 
@@ -189,5 +198,8 @@ in an Obsidian vault.
 2. **Wikilink resolution is by filename.** A link `[[path/to/file]]` is valid as long as
    `file.md` (or `file` with any extension) exists anywhere in the vault. Do not report
    it as broken just because the path component is wrong.
-3. **Cross-vault links are best-effort.** If a peer vault is not accessible, report the
+3. **Attachment resolution is vault-wide.** Obsidian resolves images and attachments
+   across the entire vault, not just relative to the referencing note. A relative link
+   is only broken if the target file does not exist anywhere in the vault.
+4. **Cross-vault links are best-effort.** If a peer vault is not accessible, report the
    links as unverifiable rather than broken.
