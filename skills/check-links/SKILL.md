@@ -41,8 +41,9 @@ Subagents MUST follow these rules:
 1. **Use Glob** to find files. NEVER use `find` in Bash.
 2. **Use Grep** to search file contents. NEVER use `grep`, `rg`, or `awk` in Bash.
 3. **Use Read** to read file contents. NEVER use `cat`, `head`, or `tail` in Bash.
-4. **Bash is allowed ONLY for:** writing/reading temp files and simple `test -f`
-   existence checks during the final verification step. No pipelines, no `sed`, no
+4. **Use Glob** to verify file existence. Prefer `Glob` with a specific pattern over
+   `test -f` in Bash.
+5. **Bash is allowed ONLY for:** writing/reading temp files. No pipelines, no `sed`, no
    `awk`, no `perl`.
 
 Agents that use Bash for file discovery or content search are doing it wrong.
@@ -62,7 +63,7 @@ Dispatch THREE parallel subagents using the Agent tool, one per link format. All
 >
 > **IMPORTANT: Use Glob to find files, Grep to search content, Read to read files. Do
 > NOT use Bash for find, grep, sed, awk, or cat. Bash is only allowed for writing temp
-> files and running `test -f`.**
+> files. Use Glob to check if files exist.**
 >
 > **Step 1 — Collect all wikilink targets.** Use the Grep tool:
 >
@@ -70,7 +71,9 @@ Dispatch THREE parallel subagents using the Agent tool, one per link format. All
 >   `{VAULT_ROOT}`
 > - Manually exclude any results with `.obsidian/`, `.claude/`, or `.trash/` in the path
 >
-> From the Grep output, parse out all wikilink targets. Handle these forms:
+> From the Grep output, parse out all wikilink targets. **Skip any line containing
+> `obsidian://` — cross-vault links are handled by a separate subagent.** Handle these
+> forms:
 >
 > - `[[target]]` → `target`
 > - `[[target|alias]]` → `target` (before the first `|`)
@@ -104,7 +107,7 @@ Dispatch THREE parallel subagents using the Agent tool, one per link format. All
 >
 > **IMPORTANT: Use Glob to find files, Grep to search content, Read to read files. Do
 > NOT use Bash for find, grep, sed, awk, or cat. Bash is only allowed for writing temp
-> files and running `test -f`.**
+> files. Use Glob to check if files exist.**
 >
 > **Step 1 — Extract all relative links.** Use the Grep tool:
 >
@@ -116,8 +119,8 @@ Dispatch THREE parallel subagents using the Agent tool, one per link format. All
 >
 > **Step 2 — Verify each link.** For each pair:
 >
-> 1. Resolve the relative path against the source file's directory. Use `test -f` in
->    Bash to check if the resolved path exists.
+> 1. Resolve the relative path against the source file's directory. Use Glob to check if
+>    the resolved path exists.
 > 2. If the file is NOT found relative to the source, extract the filename (last path
 >    component) and use Glob with pattern `**/{filename}` at `{VAULT_ROOT}` to search
 >    vault-wide. Obsidian resolves attachments vault-wide, not just relative to the
@@ -135,8 +138,8 @@ Dispatch THREE parallel subagents using the Agent tool, one per link format. All
 > links.
 >
 > **IMPORTANT: Use Glob to find files, Grep to search content, Read to read files. Do
-> NOT use Bash for find, grep, sed, awk, or cat. Bash is only allowed for `test -f`
-> existence checks.**
+> NOT use Bash for find, grep, sed, awk, or cat. Bash is only allowed for writing temp
+> files. Use Glob to check if files exist.**
 >
 > **Step 1 — Check for obsidian:// links.** Use the Grep tool:
 >
@@ -147,16 +150,19 @@ Dispatch THREE parallel subagents using the Agent tool, one per link format. All
 >
 > **Step 2 — Discover peer vaults.** Only if Step 1 found links: use the Glob tool with
 > pattern `*/.obsidian` in the parent directory of `{VAULT_ROOT}`. Exclude
-> `{VAULT_ROOT}` itself. Build a map of `vault_name → path` from any matches.
+> `{VAULT_ROOT}` itself. Build a map of `vault_name → path` from any matches. Also add
+> the current vault to this map — determine its name from the `{VAULT_ROOT}` directory
+> name, and map it to `{VAULT_ROOT}`. Files can migrate back into the source vault, so
+> the current vault must be checked too.
 >
 > **Step 3 — Parse and verify.** From the Grep results, parse each `obsidian://` URL to
 > extract `vault` and `file` parameters. For each link:
 >
 > 1. URL-decode the `file` parameter
-> 2. If the vault name matches a discovered peer vault, use `test -f` in Bash to check
->    if `{peer_vault_path}/{decoded_file}` or `{peer_vault_path}/{decoded_file}.md`
+> 2. If the vault name matches any known vault (including the current vault), use Glob
+>    to check if `{vault_path}/{decoded_file}` or `{vault_path}/{decoded_file}.md`
 >    exists
-> 3. If vault name doesn't match any peer vault, flag as "unknown vault"
+> 3. If vault name doesn't match any known vault, flag as "unknown vault"
 > 4. If URL is malformed, flag as "malformed"
 >
 > **Step 4 — Report.** Return a markdown table:
