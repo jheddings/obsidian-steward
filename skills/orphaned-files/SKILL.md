@@ -21,6 +21,7 @@ vault open**. See Preconditions.
 
 ```
 VAULT_ROOT = the current working directory
+VAULT_NAME = the last path component of VAULT_ROOT (the folder name)
 ```
 
 Use the Read tool to read `.obsidian/app.json`. If the file does not exist, this is not
@@ -29,27 +30,30 @@ configuration (used below for target folder detection).
 
 ## Preconditions — Obsidian CLI (fail fast)
 
-The CLI queries the **active** Obsidian vault, not the current directory, so confirm the
-right vault is open before doing anything else.
+The CLI talks to the running Obsidian app and resolves a vault by **name**, not by the
+current directory. Multiple vaults can be open at once, so every CLI call MUST pass
+`vault=<VAULT_NAME>` to target this vault explicitly — never rely on the implicit active
+vault.
 
-Run:
+Confirm the vault is reachable before doing anything else:
 
 ```
-obsidian vault
+obsidian vault vault=<VAULT_NAME>
 ```
 
-This prints `name` and `path` for the active vault (tab-separated). Handle three failure
-cases, each by stopping with the matching message:
+This prints `name` and `path` (tab-separated). Handle three failure cases, each by
+stopping with the matching message:
 
-1. **Command not found / errors** — the Obsidian CLI is unavailable. Tell the user this
+1. **`obsidian` command not found** — the Obsidian CLI is unavailable. Tell the user this
    skill requires the Obsidian desktop app's CLI (`/Applications/Obsidian.app`) and stop.
-2. **No active vault / command hangs** — Obsidian is not running. Tell the user to launch
-   Obsidian and stop.
-3. **`path` ≠ `VAULT_ROOT`** — a different vault is active. Tell the user: "Obsidian's
-   active vault is `{path}`, but this skill is running in `{VAULT_ROOT}`. Open this vault
-   in Obsidian and retry." Then stop.
+2. **Errors / "not found" / hangs** — the vault is not open (or Obsidian is not running).
+   Tell the user to open `{VAULT_NAME}` in Obsidian and retry, then stop.
+3. **`path` ≠ `VAULT_ROOT`** — the name resolves to a different vault on disk. Tell the
+   user: "`{VAULT_NAME}` resolves to `{path}` in Obsidian, but this skill is running in
+   `{VAULT_ROOT}`." Then stop.
 
-Only proceed once `obsidian vault` reports a `path` equal to `VAULT_ROOT`.
+Only proceed once `obsidian vault vault=<VAULT_NAME>` reports a `path` equal to
+`VAULT_ROOT`.
 
 ## Target Folder
 
@@ -73,8 +77,9 @@ folder path** (e.g. `Attachments` or `Meta/Files`).
 
 ## Tool Usage — MANDATORY
 
-- **Use Bash** only to invoke the `obsidian` CLI (`obsidian vault`, `obsidian orphans`).
-  Do NOT use Bash for `grep`, `sed`, `awk`, `cat`, or file searching.
+- **Use Bash** only to invoke the `obsidian` CLI (`obsidian vault`, `obsidian orphans`),
+  always with `vault=<VAULT_NAME>`. Do NOT use Bash for `grep`, `sed`, `awk`, `cat`, or
+  file searching.
 - **Use Glob** to list files in the target folder.
 - **Use Read** to read file contents (including the orphans output file).
 
@@ -93,7 +98,7 @@ Run the Obsidian CLI, redirecting to a temp file to keep the (potentially large)
 of context:
 
 ```
-obsidian orphans > /tmp/obsidian-orphans.txt
+obsidian orphans vault=<VAULT_NAME> > /tmp/obsidian-orphans.txt
 ```
 
 `obsidian orphans` lists every file in the vault with no incoming links — attachments and
