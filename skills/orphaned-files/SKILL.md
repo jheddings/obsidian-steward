@@ -44,10 +44,11 @@ obsidian vault vault=<VAULT_NAME>
 This prints `name` and `path` (tab-separated). Handle three failure cases, each by
 stopping with the matching message:
 
-1. **`obsidian` command not found** — the Obsidian CLI is unavailable. Tell the user this
-   skill requires the Obsidian desktop app's CLI (`/Applications/Obsidian.app`) and stop.
-2. **Errors / "not found" / hangs** — the vault is not open (or Obsidian is not running).
-   Tell the user to open `{VAULT_NAME}` in Obsidian and retry, then stop.
+1. **`obsidian` command not found** — the Obsidian CLI is unavailable. Tell the user
+   this skill requires the Obsidian desktop app's CLI (`/Applications/Obsidian.app`) and
+   stop.
+2. **Errors / "not found" / hangs** — the vault is not open (or Obsidian is not
+   running). Tell the user to open `{VAULT_NAME}` in Obsidian and retry, then stop.
 3. **`path` ≠ `VAULT_ROOT`** — the name resolves to a different vault on disk. Tell the
    user: "`{VAULT_NAME}` resolves to `{path}` in Obsidian, but this skill is running in
    `{VAULT_ROOT}`." Then stop.
@@ -94,22 +95,22 @@ Glob from the Target Folder step already produced this — reuse it.)
 
 ### Phase 2 — List the vault's orphans
 
-Run the Obsidian CLI, redirecting to a temp file to keep the (potentially large) list out
-of context:
+Run the Obsidian CLI, redirecting to a temp file to keep the (potentially large) list
+out of context:
 
 ```
 obsidian orphans vault=<VAULT_NAME> > /tmp/obsidian-orphans.txt
 ```
 
-`obsidian orphans` lists every file in the vault with no incoming links — attachments and
-notes alike — one vault-relative path per line. Use the Read tool to read the temp file.
-This is the **orphan set**.
+`obsidian orphans` lists every file in the vault with no incoming links — attachments
+and notes alike — one vault-relative path per line. Use the Read tool to read the temp
+file. This is the **orphan set**.
 
 ### Phase 3 — Intersect and report
 
 The orphaned files in the target folder are the **intersection** of the folder file set
-(Phase 1) and the orphan set (Phase 2): paths that appear in both. No reference searching
-is needed — `orphans` already accounts for all link forms.
+(Phase 1) and the orphan set (Phase 2): paths that appear in both. No reference
+searching is needed — `orphans` already accounts for all link forms.
 
 Present findings as a markdown table: `File | Path` followed by a short narrative /
 summary of your findings.
