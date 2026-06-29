@@ -64,6 +64,13 @@ class RewriteMarkdownLinks(unittest.TestCase):
             rewrite_links("![[drop-2.png]]", self.m),
             "![[keep.png]]")
 
+    def test_wikilink_swaps_only_trailing_basename(self):
+        # basename appears twice in the path (a folder named like the file);
+        # only the final segment should change, not the directory.
+        self.assertEqual(
+            rewrite_links("[[Logo.png/Logo.png]]", {"Logo.png": "Brand.png"}),
+            "[[Logo.png/Brand.png]]")
+
 
 class ApplyRepointsMarkdownLinkBeforeDeleting(unittest.TestCase):
     """End-to-end: a duplicate referenced only by a markdown link must be

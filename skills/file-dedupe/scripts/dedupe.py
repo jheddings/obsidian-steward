@@ -354,9 +354,10 @@ def rewrite_links(text, mapping):
         bang, tgt = m.group(1), m.group(2)
         head = tgt.split("|", 1)
         core = head[0].split("#", 1)
-        bn = os.path.basename(core[0].strip())
+        path = core[0].strip()
+        bn = os.path.basename(path)
         if bn in mapping:
-            newcore = core[0].replace(bn, mapping[bn])
+            newcore = path[: len(path) - len(bn)] + mapping[bn]
             rebuilt = newcore + ("#" + core[1] if len(core) > 1 else "")
             rebuilt += ("|" + head[1] if len(head) > 1 else "")
             return f"{bang}[[{rebuilt}]]"
