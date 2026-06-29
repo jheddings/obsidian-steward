@@ -284,6 +284,16 @@ def resolve_links(root, paths, refs, vault_name, use_cli):
     return out, used_cli
 
 
+def apply_hint(prog, plan_out, root):
+    """The 'apply with:' command to print after a scan — echoing the same
+    --vault (plan paths are vault-relative) and steering toward the recoverable
+    --use-git form when the vault is a git work tree."""
+    cmd = f"{prog} --apply {plan_out} --vault {root}"
+    if inside_work_tree(root):
+        cmd += " --use-git"
+    return cmd
+
+
 def scan(root, scope, plan_out, use_cli=True):
     refs = build_backlinks(root)
     byhash = defaultdict(list)
@@ -362,7 +372,8 @@ def scan(root, scope, plan_out, use_cli=True):
     if plan_out:
         json.dump(plan, open(plan_out, "w"), indent=2)
         print(f"\nPlan written to {plan_out}")
-        print(f"Review the table above, then apply with:\n  {sys.argv[0]} --apply {plan_out}")
+        print(f"Review the table above, then apply with:\n  "
+              f"{apply_hint(sys.argv[0], plan_out, root)}")
     return plan
 
 

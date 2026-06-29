@@ -6,7 +6,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dedupe import (rewrite_links, scan, apply, remove_file, classify,
                     vault_name_for, backlinks_cmd, parse_vault_path,
                     daily_matcher, daily_matcher_from, moment_format_to_regex,
-                    removal_warning)
+                    removal_warning, apply_hint)
+import subprocess
 
 
 class DailyNoteDetectionFromConfig(unittest.TestCase):
@@ -320,6 +321,24 @@ class CleanResultReporting(unittest.TestCase):
             self.assertEqual(plan, [])
             self.assertIn("No duplicate sets found", out)
             self.assertNotIn("| Tier |", out)
+
+
+class ApplyHint(unittest.TestCase):
+    """The 'apply with:' hint must echo --vault (plan paths are vault-relative)
+    and steer toward the recoverable form when the vault is a git repo."""
+
+    def test_hint_echoes_vault(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertIn(f"--vault {root}", apply_hint("dedupe.py", "p.json", root))
+
+    def test_hint_suggests_use_git_in_repo(self):
+        with tempfile.TemporaryDirectory() as root:
+            subprocess.run(["git", "init", "-q", root], check=True)
+            self.assertIn("--use-git", apply_hint("dedupe.py", "p.json", root))
+
+    def test_hint_omits_use_git_outside_repo(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertNotIn("--use-git", apply_hint("dedupe.py", "p.json", root))
 
 
 if __name__ == "__main__":
