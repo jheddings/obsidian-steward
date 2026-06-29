@@ -98,9 +98,13 @@ The scanner labels each set so the operator knows where to look:
 | **cross-note ⚠** | **Two or more distinct non-daily notes** share these bytes. | **Eyeball the actual images first.** |
 | **BLOCKED** | A copy is referenced from a `.canvas`/`.base` file, which `apply` can't repoint. | Auto-excluded; resolve by hand. |
 
-The risk split keys off **daily notes** (`Notes/YYYY/.../YYYY-MM-DD`). An image
-in a daily note is almost always a capture, so a journal entry plus one
-reference home is the benign capture-and-file pattern (plain `cross-note`). The
+The risk split keys off **daily notes**, whose folder and date format are read
+from the vault's own config (`.obsidian/daily-notes.json`) — not assumed — so a
+vault that files journals under `Journal/` is recognized just as well as one
+using `Notes/`. If a vault has no daily-notes config, nothing is treated as a
+daily and more sets land in `⚠` review (the safe direction). An image in a
+daily note is almost always a capture, so a journal entry plus one reference
+home is the benign capture-and-file pattern (plain `cross-note`). The
 `⚠` flag fires only when **two real reference/project notes** couple onto one
 file — e.g. the same photo in a Winchester ammo note *and* a Remington ammo
 note. Identical bytes across unrelated subjects can mean a **mis-filed

@@ -169,14 +169,56 @@ def obsidian_backlinks(relpath, vault_name=None):
     return {d["file"] for d in data if isinstance(d, dict) and "file" in d}
 
 
-DAILY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+def moment_format_to_regex(fmt):
+    """A regex matching a path formatted with a moment.js daily-note `format`
+    (e.g. 'YYYY/MM/YYYY-MM-DD'). Date tokens become digit classes; everything
+    else — including the path separators — is matched literally."""
+    tokens = [("YYYY", r"\d{4}"), ("YY", r"\d{2}"),
+              ("MM", r"\d{2}"), ("DD", r"\d{2}"),
+              ("M", r"\d{1,2}"), ("D", r"\d{1,2}")]
+    out, i = [], 0
+    while i < len(fmt):
+        for tok, pat in tokens:
+            if fmt.startswith(tok, i):
+                out.append(pat)
+                i += len(tok)
+                break
+        else:
+            out.append(re.escape(fmt[i]))
+            i += 1
+    return re.compile("".join(out))
 
 
-def is_daily(rel):
-    """A daily/journal note under Notes/ — an image appearing in one is almost
-    always a capture, not a deliberate cross-note reuse."""
-    parts = rel.replace("\\", "/").split("/")
-    return parts[0] == "Notes" and bool(DAILY_RE.search(os.path.basename(rel)))
+def daily_matcher_from(cfg):
+    """Build is_daily(rel) from a Daily Notes config dict (folder + format).
+    A note is daily when it lives under the configured folder AND its path
+    carries a date in the configured format. With no folder, fall back to a
+    date match on the basename; with no config at all, nothing is daily."""
+    folder = (cfg.get("folder") or "").strip("/")
+    date_re = moment_format_to_regex(cfg.get("format") or "YYYY-MM-DD")
+
+    def is_daily(rel):
+        r = rel.replace("\\", "/")
+        if folder:
+            if not (r == folder or r.startswith(folder + "/")):
+                return False
+            return bool(date_re.search(r))
+        return bool(date_re.search(os.path.basename(r)))
+
+    return is_daily
+
+
+def daily_matcher(root):
+    """is_daily(rel) for a vault, read from .obsidian/daily-notes.json (the core
+    Daily Notes plugin). When that file is absent, treat nothing as daily — we
+    don't assume a location, and erring this way only sends more sets to review."""
+    try:
+        with open(os.path.join(root, ".obsidian", "daily-notes.json"),
+                  encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return lambda rel: False
+    return daily_matcher_from(cfg)
 
 
 def nonmd_refs(root, basenames):
@@ -210,14 +252,14 @@ SUFFIX_RE = re.compile(r"(-\d+|\s\d+)$")  # iCloud/import disambiguators
 # "most-referenced" can use authoritative CLI link counts when available.
 
 
-def classify(notes):
+def classify(notes, is_daily):
     """tier + risk from the union of referrer notes for a duplicate set.
       intra-note            : <=1 referring note. Pure import bloat — safe.
       cross-note (low)      : 2+ notes, but <=1 of them is a non-daily note —
                               the rest are daily-note captures (capture+file).
       cross-note (review)   : 2+ distinct NON-daily notes share these bytes —
                               could be a legit shared asset or a mis-file. Look.
-    """
+    `is_daily` is the vault's configured daily-note matcher (daily_matcher)."""
     notes = set(notes)
     if len(notes) <= 1:
         return "intra-note", "n/a"
@@ -273,6 +315,7 @@ def scan(root, scope, plan_out, use_cli=True):
     member_bns = {os.path.basename(p) for p in members}
     blockers = nonmd_refs(root, member_bns)
 
+    is_daily = daily_matcher(root)  # daily-note folder/format from vault config
     plan = []
     for h, paths in sorted(groups.items(), key=lambda kv: os.path.basename(min(kv[1])).lower()):
         def nlinks(p):
@@ -285,7 +328,7 @@ def scan(root, scope, plan_out, use_cli=True):
         notes = set()
         for p in paths:
             notes |= set(linked.get(os.path.basename(p), ()))
-        tier, risk = classify(notes)
+        tier, risk = classify(notes, is_daily)
         blocked = sorted({b for p in paths
                           for b in blockers.get(os.path.basename(p), ())})
         drops, repoint = [], defaultdict(list)  # note -> [(from_bn, to_bn)]

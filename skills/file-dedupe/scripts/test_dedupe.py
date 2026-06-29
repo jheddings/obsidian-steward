@@ -1,8 +1,51 @@
 import os, sys, tempfile, unittest
 
+import json
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dedupe import (rewrite_links, scan, apply, remove_file,
-                    vault_name_for, backlinks_cmd, parse_vault_path)
+from dedupe import (rewrite_links, scan, apply, remove_file, classify,
+                    vault_name_for, backlinks_cmd, parse_vault_path,
+                    daily_matcher, daily_matcher_from, moment_format_to_regex)
+
+
+class DailyNoteDetectionFromConfig(unittest.TestCase):
+    """The daily-note folder/format is vault config, not a fixed Notes/ path.
+    Read .obsidian/daily-notes.json so risk classification works regardless of
+    where a vault files its journal."""
+
+    def _vault(self, root, cfg):
+        os.makedirs(os.path.join(root, ".obsidian"))
+        with open(os.path.join(root, ".obsidian", "daily-notes.json"), "w") as fh:
+            json.dump(cfg, fh)
+
+    def test_format_to_regex_matches_dated_path(self):
+        rx = moment_format_to_regex("YYYY/MM/YYYY-MM-DD")
+        self.assertRegex("Notes/2021/03/2021-03-21.md", rx)
+        self.assertNotRegex("Notes/index.md", rx)
+
+    def test_matcher_uses_configured_folder_and_format(self):
+        with tempfile.TemporaryDirectory() as root:
+            self._vault(root, {"folder": "Journal", "format": "YYYY/YYYY-MM-DD"})
+            is_daily = daily_matcher(root)
+            self.assertTrue(is_daily("Journal/2011/2011-10-06.md"))
+            self.assertFalse(is_daily("Places/Grand Mesa.md"))
+            self.assertFalse(is_daily("Journal/Index.md"))  # in folder but not dated
+
+    def test_no_config_treats_nothing_as_daily(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, ".obsidian"))
+            is_daily = daily_matcher(root)
+            self.assertFalse(is_daily("Notes/2021/03/2021-03-21.md"))
+
+    def test_classify_low_risk_when_only_one_non_daily_note(self):
+        is_daily = daily_matcher_from({"folder": "Journal", "format": "YYYY-MM-DD"})
+        tier, risk = classify({"Journal/2011-10-06.md", "Places/Grand Mesa.md"}, is_daily)
+        self.assertEqual((tier, risk), ("cross-note", "low"))
+
+    def test_classify_review_when_two_non_daily_notes(self):
+        is_daily = daily_matcher_from({"folder": "Journal", "format": "YYYY-MM-DD"})
+        tier, risk = classify({"Ammo/A.md", "Ammo/B.md"}, is_daily)
+        self.assertEqual((tier, risk), ("cross-note", "review"))
 
 
 class CliVaultTargeting(unittest.TestCase):
