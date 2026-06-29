@@ -1,8 +1,6 @@
-<<-EOF
-    {
-        "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-        "enabled": true,
-        "dependencyDashboard": false,
-        "extends": ["config:base"]
-    }
-    EOF
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "enabled": true,
+    "dependencyDashboard": false,
+    "extends": ["config:base"]
+}

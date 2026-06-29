@@ -12,19 +12,54 @@ description: >-
 Scan a folder in the current Obsidian vault for files that no note references.
 Report-first: present findings, then confirm before any deletion.
 
+References are resolved with the Obsidian CLI (`obsidian orphans`), which uses
+Obsidian's live link graph — including embeds and frontmatter links — rather than text
+matching. This is authoritative, but it requires Obsidian to be **running** with **this
+vault open**. See Preconditions.
+
 ## Vault Detection
 
 ```
 VAULT_ROOT = the current working directory
+VAULT_NAME = the last path component of VAULT_ROOT (the folder name)
 ```
 
 Use the Read tool to read `.obsidian/app.json`. If the file does not exist, this is not
 an Obsidian vault — tell the user and stop. Parse the JSON to extract vault
 configuration (used below for target folder detection).
 
+## Preconditions — Obsidian CLI (fail fast)
+
+The CLI talks to the running Obsidian app and resolves a vault by **name**, not by the
+current directory. Multiple vaults can be open at once, so every CLI call MUST pass
+`vault=<VAULT_NAME>` to target this vault explicitly — never rely on the implicit active
+vault.
+
+Confirm the vault is reachable before doing anything else:
+
+```
+obsidian vault vault=<VAULT_NAME>
+```
+
+This prints `name` and `path` (tab-separated). Handle three failure cases, each by
+stopping with the matching message:
+
+1. **`obsidian` command not found** — the Obsidian CLI is unavailable. Tell the user
+   this skill requires the Obsidian desktop app's CLI (`/Applications/Obsidian.app`) and
+   stop.
+2. **Errors / "not found" / hangs** — the vault is not open (or Obsidian is not
+   running). Tell the user to open `{VAULT_NAME}` in Obsidian and retry, then stop.
+3. **`path` ≠ `VAULT_ROOT`** — the name resolves to a different vault on disk. Tell the
+   user: "`{VAULT_NAME}` resolves to `{path}` in Obsidian, but this skill is running in
+   `{VAULT_ROOT}`." Then stop.
+
+Only proceed once `obsidian vault vault=<VAULT_NAME>` reports a `path` equal to
+`VAULT_ROOT`.
+
 ## Target Folder
 
-Determine which folder to scan, in priority order:
+Determine which folder to scan, in priority order. The result is a **vault-relative
+folder path** (e.g. `Attachments` or `Meta/Files`).
 
 1. **User-specified folder** — if the user names a specific folder (e.g., "check the
    Clippings folder"), use the Glob tool with pattern `**/FolderName/**` (note the
@@ -41,101 +76,46 @@ Determine which folder to scan, in priority order:
    orphaned files?" Do NOT suggest folder names, offer multiple-choice options, or
    search for common folder names. Wait for the user to type a folder name.
 
-## Excluded Paths
-
-Skip these directories when grepping for references (not when scanning the target
-folder):
-
-- `.obsidian/`
-- `.claude/`
-- `.trash/`
-
 ## Tool Usage — MANDATORY
 
-**Bash usage is prohibited** - use internal tools only.
-
-1. **Use Glob** to find files.
-2. **Use Grep** to search file contents.
-3. **Use Read** to read file contents.
+- **Use Bash** only to invoke the `obsidian` CLI (`obsidian vault`, `obsidian orphans`),
+  always with `vault=<VAULT_NAME>`. Do NOT use Bash for `grep`, `sed`, `awk`, `cat`, or
+  file searching.
+- **Use Glob** to list files in the target folder.
+- **Use Read** to read file contents (including the orphans output file).
 
 ## Execution
 
-Two phases: collect target files, then search for references.
+### Phase 1 — List the folder's files
 
-### Phase 1 — Collect target files (orchestrator)
+Use the Glob tool with pattern `**/<target-folder>/**` to list every file inside the
+target folder. Convert each result to a **vault-relative path** by stripping the
+`VAULT_ROOT/` prefix. This is the **folder file set**. (For a user-specified folder, the
+Glob from the Target Folder step already produced this — reuse it.)
 
-The Glob from the Target Folder step already found the files. Reuse that result — do NOT
-re-glob. Extract just the filename (last path component) from each path. This is the
-**target file list**.
+### Phase 2 — List the vault's orphans
 
-### Phase 2 — Search for references (Sonnet subagents)
+Run the Obsidian CLI, redirecting to a temp file to keep the (potentially large) list
+out of context:
 
-Dispatch Sonnet subagents to search the vault for references to each target file. Batch
-the files:
+```
+obsidian orphans vault=<VAULT_NAME> > /tmp/obsidian-orphans.txt
+```
 
-- **≤100 files**: dispatch 1 subagent with all filenames
-- **>100 files**: split into batches of 100 and dispatch parallel subagents
+`obsidian orphans` lists every file in the vault with no incoming links — attachments
+and notes alike — one vault-relative path per line. Use the Read tool to read the temp
+file. This is the **orphan set**.
 
-**Prompt for each subagent:**
+### Phase 3 — Intersect and report
 
-> Search the Obsidian vault at `{VAULT_ROOT}` for references to the following files. For
-> each file, determine whether it is referenced by any note in the vault.
->
-> **IMPORTANT: Use Grep to search content. Do NOT use Bash for grep, sed, awk, or cat.**
->
-> **Files to check (filename → full path):**
->
-> ```
-> {BATCH_LIST}
-> ```
->
-> **How to search:** For each filename, use the Grep tool to search `*.md` files in
-> `{VAULT_ROOT}` for that name. Use these Grep parameters:
->
-> - `-i: true` for case-insensitive matching
-> - `glob: "*.md"` to search only markdown files
-> - `output_mode: "files_with_matches"` to get just the filenames that match
->
-> **Excluding paths:** The Grep tool does not support exclude globs. After each Grep
-> call, discard any results where the file path contains `.obsidian/`, `.claude/`, or
-> `.trash/`. Also discard **self-references** — if searching for `Song 1`, ignore
-> matches found in the file `Song 1.md` itself (a file's own content referencing its own
-> name is not an inbound link).
->
-> **What to search for:** Obsidian resolves links by filename, so searching for the
-> filename is sufficient to catch all link forms:
->
-> - For `.md` files: search for the filename **without** the `.md` extension (e.g.,
->   `Song 1`)
-> - For all other files: search for the **full filename with extension** (e.g.,
->   `IMG_1234.jpeg`)
->
-> This catches wikilinks (`[[Song 1]]`, `[[path/to/Song 1|alias]]`), embeds
-> (`![[Song 1]]`), markdown links (`[text](Song 1.md)`), and frontmatter references
-> (`link: "[[Song 1]]"`).
->
-> **Search strategy:** One Grep call per file.
->
-> **Return format:** Return a result for EVERY file in the batch, one per line:
->
-> ```
-> REFERENCED: Song 1.md (found in: Simple Set.md, Setlist.md)
-> ORPHANED: Song 3.md
-> ```
->
-> This allows the orchestrator to verify results. List the first 5 referencing files for
-> each referenced file.
-
-### Phase 3 — Verify and report (orchestrator)
-
-Collect results from all subagents. Review the `REFERENCED` and `ORPHANED` lines. If any
-result looks suspect (e.g., a commonly-named file reported as orphaned), spot-check with
-your own Grep call before including it in the report.
+The orphaned files in the target folder are the **intersection** of the folder file set
+(Phase 1) and the orphan set (Phase 2): paths that appear in both. No reference
+searching is needed — `orphans` already accounts for all link forms.
 
 Present findings as a markdown table: `File | Path` followed by a short narrative /
-summary of your findings
+summary of your findings.
 
-If no orphaned files found, say "No orphaned files found in {TARGET_FOLDER}."
+If the intersection is empty, say "No orphaned files found in {TARGET_FOLDER}."
 
 ### After reporting
 
@@ -146,23 +126,6 @@ If orphaned files were found, ask:
 
 Only delete after explicit user confirmation. Move files to the vault's `.trash/` folder
 if it exists, otherwise use `rm` for confirmed files.
-
-## Link Pattern Reference
-
-This reference is included so the subagent understands all link forms in an Obsidian
-vault.
-
-| Pattern                  | Example                                           | Resolution                        |
-| ------------------------ | ------------------------------------------------- | --------------------------------- |
-| Wikilink                 | `[[Meeting Notes]]`                               | Search vault by filename          |
-| Aliased wikilink         | `[[2024-01-15 Project Log\|Q1 Review]]`           | Target is before the `\|`         |
-| Embedded file            | `![[IMG_6787.jpeg]]`                              | Same as wikilink                  |
-| Embedded with size/alias | `![[Untitled 4.png\|Untitled 4.png]]`             | Target is before the `\|`         |
-| Markdown relative link   | `[text](relative/path.md)`                        | Resolve relative to source file   |
-| Cross-vault link         | `[text](obsidian://open?vault=Workbook&file=...)` | Not relevant for orphan detection |
-| External URL             | `[text](https://...)`                             | Not checked                       |
-| Frontmatter wikilink     | `place: "[[Meeting Notes]]"`                      | Same as wikilink                  |
-| Frontmatter string       | `banner: Sunset Beach Landscape`                  | Implicit reference — not checked  |
 
 ## Safety Rules
 
