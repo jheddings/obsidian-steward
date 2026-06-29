@@ -5,7 +5,8 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dedupe import (rewrite_links, scan, apply, remove_file, classify,
                     vault_name_for, backlinks_cmd, parse_vault_path,
-                    daily_matcher, daily_matcher_from, moment_format_to_regex)
+                    daily_matcher, daily_matcher_from, moment_format_to_regex,
+                    removal_warning)
 
 
 class DailyNoteDetectionFromConfig(unittest.TestCase):
@@ -153,7 +154,7 @@ class MarkdownLinkEdgeCases(unittest.TestCase):
                 fh.write("![x](img%202.png)\n")
             plan = os.path.join(root, "plan.json")
             scan(root, ["."], plan, use_cli=False)
-            apply(root, plan, use_git=False)
+            apply(root, plan, use_git=False, force=True)
             self.assertFalse(os.path.exists(os.path.join(root, "img 2.png")),
                              "suffixed duplicate should be removed")
             self.assertEqual(open(note).read(), "![x](img.png)\n",
@@ -176,7 +177,7 @@ class ApplyRepointsMarkdownLinkBeforeDeleting(unittest.TestCase):
 
             plan = os.path.join(root, "plan.json")
             scan(root, ["."], plan, use_cli=False)
-            apply(root, plan, use_git=False)
+            apply(root, plan, use_git=False, force=True)
 
             self.assertFalse(os.path.exists(os.path.join(root, "drop-2.png")),
                              "dropped duplicate should be removed")
@@ -259,6 +260,46 @@ class UseGitFailsLoudly(unittest.TestCase):
                             "nothing removed when --use-git can't apply")
             self.assertEqual(open(os.path.join(root, "note.md")).read(),
                              "![x](drop-2.png)\n", "no repoint when run is aborted")
+
+
+class PermanentDeleteIsGated(unittest.TestCase):
+    """The irreversible path (no .trash/, no --use-git) must be opt-in via
+    --force, and the operator must be warned about it at scan time."""
+
+    def test_refuses_permanent_delete_without_force(self):
+        with tempfile.TemporaryDirectory() as root:  # no .trash, not git
+            plan = _dup_vault(root)
+            apply(root, plan, use_git=False, force=False)
+            self.assertTrue(os.path.exists(os.path.join(root, "drop-2.png")),
+                            "must not permanently delete without --force")
+            self.assertEqual(open(os.path.join(root, "note.md")).read(),
+                             "![x](drop-2.png)\n", "no repoint when aborted")
+
+    def test_force_allows_permanent_delete(self):
+        with tempfile.TemporaryDirectory() as root:
+            plan = _dup_vault(root)
+            apply(root, plan, use_git=False, force=True)
+            self.assertFalse(os.path.exists(os.path.join(root, "drop-2.png")))
+            self.assertEqual(open(os.path.join(root, "note.md")).read(),
+                             "![x](keep.png)\n")
+
+    def test_trash_does_not_require_force(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.mkdir(os.path.join(root, ".trash"))
+            plan = _dup_vault(root)
+            apply(root, plan, use_git=False, force=False)
+            self.assertFalse(os.path.exists(os.path.join(root, "drop-2.png")))
+            self.assertTrue(os.path.exists(
+                os.path.join(root, ".trash", "drop-2.png")))
+
+    def test_warning_flags_permanent_when_no_trash_no_git(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertIn("PERMANENT", removal_warning(root).upper())
+
+    def test_warning_mentions_trash_when_present(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.mkdir(os.path.join(root, ".trash"))
+            self.assertIn(".trash", removal_warning(root))
 
 
 if __name__ == "__main__":

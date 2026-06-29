@@ -63,13 +63,19 @@ duplicate.
    linked-from notes) and get an explicit go-ahead. The table groups itself:
    `intra-note`, then plain `cross-note`, then `cross-note ⚠` (the only ones
    that need eyeballing), then any `BLOCKED` sets. Focus the review on the ⚠
-   sets.
+   sets. **Relay the scan's `Removal:` line at this gate** — it states whether
+   the drops will be recoverable (`.trash/` or `--use-git`) or **permanently
+   deleted**, so the operator approves with the irreversibility in view. The
+   full list of drop filenames for any set is in the plan JSON (the table shows
+   counts only); surface it if the operator wants to see exactly which copies
+   die.
 
 3. **Apply** the reviewed plan — re-verifies each file's hash, repoints links,
    then removes the dropped files:
    ```
-   scripts/dedupe.py --apply PLAN.json --vault VAULT_ROOT [--use-git]
+   scripts/dedupe.py --apply PLAN.json --vault VAULT_ROOT [--use-git] [--force]
    ```
+   Pass the **same `--vault`** used at scan time (plan paths are vault-relative).
    Before deleting anything, apply re-hashes the keep and each drop and
    compares against the plan. A keep that changed → the whole set is skipped; a
    drop that changed or vanished → that drop is skipped (never deleted on stale
@@ -78,11 +84,15 @@ duplicate.
    Trim the plan first if the operator excluded sets (it's plain JSON — drop
    the unwanted entries).
 
-   **Removal is recoverable by default.** With `--use-git`, drops are `git rm`'d
-   (recoverable from history). Otherwise, if the vault has a `.trash/` folder,
-   drops are *moved* there (preserving their subpath, never clobbering an
-   existing trashed file); only when there is no `.trash/` are they permanently
-   deleted.
+   **Removal is recoverable by default, and the irreversible path is opt-in.**
+   With `--use-git`, drops are `git rm`'d (recoverable from history) — apply
+   *aborts* if the vault isn't a git work tree rather than silently no-op'ing.
+   Otherwise, if the vault has a `.trash/` folder, drops are *moved* there
+   (preserving their subpath, never clobbering an existing trashed file). When
+   there is **no `.trash/` and not `--use-git`**, apply **refuses** to delete
+   and tells you how to make it recoverable; pass `--force` to permanently
+   delete anyway. The scan summary's `Removal:` line predicts which of these
+   will happen.
 
 4. **Commit removal + repoints together** as one bundle, so the history never
    records a dangling embed — never delete-then-repoint across two commits.

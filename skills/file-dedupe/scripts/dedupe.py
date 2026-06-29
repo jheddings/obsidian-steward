@@ -353,6 +353,9 @@ def scan(root, scope, plan_out, use_cli=True):
         })
 
     print_report(plan)
+    n_drop = sum(len(g["drops"]) for g in plan if not g["blocked_nonmd"])
+    if n_drop:
+        print("\n" + removal_warning(root))
     if plan_out:
         json.dump(plan, open(plan_out, "w"), indent=2)
         print(f"\nPlan written to {plan_out}")
@@ -482,6 +485,18 @@ def inside_work_tree(root):
     return out.returncode == 0 and out.stdout.strip() == "true"
 
 
+def removal_warning(root):
+    """One-line heads-up for the scan summary describing what `apply` will do to
+    dropped files, so the operator sees the recovery semantics before approving."""
+    if os.path.isdir(os.path.join(root, ".trash")):
+        return "Removal: drops move to .trash/ (recoverable)."
+    if inside_work_tree(root):
+        return ("Removal: no .trash/ — pass --use-git for a recoverable git rm; "
+                "otherwise drops are PERMANENTLY deleted (--force required).")
+    return ("⚠ Removal: no .trash/ and not a git repo — apply will "
+            "PERMANENTLY delete drops. Create a .trash/ folder, or pass --force.")
+
+
 def remove_file(root, rel, use_git):
     """Remove a dropped duplicate, returning how it went ('git'|'trash'|'delete').
     Prefer recoverable removal: git rm with --use-git, else move to the vault's
@@ -503,11 +518,18 @@ def remove_file(root, rel, use_git):
         return "delete"
 
 
-def apply(root, plan_path, use_git):
+def apply(root, plan_path, use_git, force=False):
     if use_git and not inside_work_tree(root):
         print(f"--use-git was given but {root} is not a git work tree — "
               f"aborting (nothing changed). Drop the flag to use .trash/, or run "
               f"inside the repo.", file=sys.stderr)
+        return
+    has_trash = os.path.isdir(os.path.join(root, ".trash"))
+    if not use_git and not has_trash and not force:
+        print("Refusing to PERMANENTLY delete dropped files: this vault has no "
+              ".trash/ and --use-git was not given. Create a .trash/ folder, use "
+              "--use-git, or pass --force to delete anyway. (nothing changed)",
+              file=sys.stderr)
         return
     plan = json.load(open(plan_path))
     removed = repointed = skipped = 0
@@ -551,10 +573,11 @@ def apply(root, plan_path, use_git):
                 open(p, "w", encoding="utf-8").write(new)
                 repointed += 1
                 print(f"{tag} repointed {len(mapping)} link(s) in {note}")
+        verb = {"git": "git-rm'd", "trash": "trashed", "delete": "deleted"}
         for d in live:
-            remove_file(root, d["path"], use_git)
+            how = remove_file(root, d["path"], use_git)
             removed += 1
-            print(f"{tag} removed {d['path']}")
+            print(f"{tag} {verb[how]} {d['path']}")
     print(f"\nDone: {removed} file(s) removed, {repointed} note(s) repointed, "
           f"{skipped} set(s) skipped.")
 
@@ -569,10 +592,12 @@ def main():
                     help="skip the Obsidian CLI; use the regex index only")
     ap.add_argument("--apply", metavar="PLAN", help="execute a reviewed JSON plan")
     ap.add_argument("--use-git", action="store_true", help="remove via 'git rm' (apply mode)")
+    ap.add_argument("--force", action="store_true",
+                    help="permit permanent deletion when there's no .trash/ and not --use-git")
     a = ap.parse_args()
     root = os.path.abspath(a.vault)
     if a.apply:
-        apply(root, a.apply, a.use_git)
+        apply(root, a.apply, a.use_git, force=a.force)
     else:
         scan(root, a.scope or ["."], a.plan_out, use_cli=not a.no_cli)
 
