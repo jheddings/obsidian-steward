@@ -120,6 +120,17 @@ Deterministic, in priority order: **un-suffixed name** > **most-referenced**
 widely-used originals over stray copies. Tie-breaks are stable across runs —
 never let the kept copy depend on filesystem ordering.
 
+## Link forms handled
+
+Repointing covers wikilinks/embeds (`[[x]]`, `![[x]]`) and markdown links
+(`[t](x)`, `![t](x)`), each kept in its original syntax. Markdown targets are
+matched and rewritten through their real on-disk name: angle-bracket dests
+(`[t](<my file.png>)`), percent-encoded spaces (`my%20file.png`), and quoted
+titles (`[t](x.png "title")`) are all resolved and preserved. The one form not
+handled is a markdown link whose destination embeds a literal `)` or a
+parenthesis-style `(title)` — rare, and such a referrer simply isn't matched
+(so re-scan or fix it by hand if you use that style).
+
 ## Common mistakes
 
 - **Deleting before repointing.** Leaves dangling `![[...]]` embeds. Always

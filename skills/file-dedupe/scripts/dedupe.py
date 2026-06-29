@@ -32,14 +32,29 @@ Usage:
   dedupe.py --apply PLAN [--use-git]   # execute a reviewed plan
 """
 import argparse, hashlib, json, os, re, shutil, subprocess, sys
+import urllib.parse
 from collections import defaultdict
 
 # Folders that are vault machinery, never content. Any dotfolder is skipped too.
 IGNORE_DIRS = {".git", ".obsidian", ".trash", ".claude", ".smart-env"}
 # Binary/media we care about deduping; None = hash everything except .md.
 LINK_RE = re.compile(r"(!?)\[\[([^\]]+?)\]\]")          # wikilinks / embeds
-MD_LINK_RE = re.compile(r"\]\(([^)]+?)\)")               # markdown links (index)
-MD_REWRITE_RE = re.compile(r"(!?)\[([^\]]*)\]\(([^)]+?)\)")  # markdown links (rewrite)
+# Markdown links/embeds. Groups: 1=bang 2=text 3=dest (<...> or bare) 4=title.
+# Bare dests can't contain spaces (Obsidian percent-encodes them); angle-bracket
+# dests can. A quoted "title"/'title' is optional and preserved verbatim.
+MD_LINK_RE = re.compile(
+    r"(!?)\[([^\]]*)\]\(\s*(<[^>]*>|[^)\s]*)\s*(\"[^\"]*\"|'[^']*')?\s*\)")
+
+
+def md_dest_basename(dest):
+    """The real on-disk basename a markdown-link destination points at:
+    strip angle brackets and any #fragment, percent-decode, take the basename.
+    Returns '' for empty/external-looking dests."""
+    d = dest.strip()
+    if d.startswith("<") and d.endswith(">"):
+        d = d[1:-1]
+    d = d.split("#", 1)[0]
+    return os.path.basename(urllib.parse.unquote(d).strip())
 
 
 def walk_files(root, scope):
@@ -79,9 +94,10 @@ def build_backlinks(root):
             for _, tgt in LINK_RE.findall(txt):
                 bn = os.path.basename(tgt.split("|")[0].split("#")[0].strip())
                 refs[bn].add(rel)
-            for tgt in MD_LINK_RE.findall(txt):
-                bn = os.path.basename(tgt.split("#")[0].strip())
-                refs[bn].add(rel)
+            for _, _, dest, _ in MD_LINK_RE.findall(txt):
+                bn = md_dest_basename(dest)
+                if bn:
+                    refs[bn].add(rel)
     return refs
 
 
@@ -364,18 +380,27 @@ def rewrite_links(text, mapping):
         return m.group(0)
 
     def ml(m):
-        bang, cap, tgt = m.group(1), m.group(2), m.group(3)
-        core = tgt.split("#", 1)
-        path = core[0].strip()
-        bn = os.path.basename(path)
-        if bn in mapping:
-            newpath = path[: len(path) - len(bn)] + mapping[bn]
-            rebuilt = newpath + ("#" + core[1] if len(core) > 1 else "")
-            return f"{bang}[{cap}]({rebuilt})"
-        return m.group(0)
+        bang, cap, dest, title = m.group(1), m.group(2), m.group(3), m.group(4)
+        if md_dest_basename(dest) not in mapping:
+            return m.group(0)
+        raw = dest.strip()
+        bracketed = raw.startswith("<") and raw.endswith(">")
+        inner = raw[1:-1] if bracketed else raw
+        path, _, frag = inner.partition("#")
+        keep = mapping[md_dest_basename(dest)]
+        # Re-encode the new basename only if the original target was encoded, so
+        # an encoded link stays encoded and a plain one stays plain.
+        seg = path.rsplit("/", 1)[-1]
+        newseg = urllib.parse.quote(keep) if "%" in seg else keep
+        newpath = path[: len(path) - len(seg)] + newseg
+        if frag:
+            newpath += "#" + frag
+        newdest = f"<{newpath}>" if bracketed else newpath
+        tail = (" " + title) if title else ""
+        return f"{bang}[{cap}]({newdest}{tail})"
 
-    text = LINK_RE.sub(wl, text)        # wikilinks/embeds first
-    return MD_REWRITE_RE.sub(ml, text)  # then markdown links (won't match [[..]])
+    text = LINK_RE.sub(wl, text)     # wikilinks/embeds first
+    return MD_LINK_RE.sub(ml, text)  # then markdown links (won't match [[..]])
 
 
 def verify_hash(root, rel, want):

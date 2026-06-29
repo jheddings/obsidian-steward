@@ -72,6 +72,51 @@ class RewriteMarkdownLinks(unittest.TestCase):
             "[[Logo.png/Brand.png]]")
 
 
+class MarkdownLinkEdgeCases(unittest.TestCase):
+    """Markdown links can carry titles, angle brackets, and percent-encoded
+    targets. Indexing and rewriting must agree on the real on-disk basename, or
+    a referenced file gets deleted with its link left dangling."""
+
+    def test_url_encoded_target_repointed_and_reencoded(self):
+        self.assertEqual(
+            rewrite_links("![cap](drop%20img.png)", {"drop img.png": "keep img.png"}),
+            "![cap](keep%20img.png)")
+
+    def test_titled_link_preserves_title(self):
+        self.assertEqual(
+            rewrite_links('[d](drop-2.png "a title")', {"drop-2.png": "keep.png"}),
+            '[d](keep.png "a title")')
+
+    def test_angle_bracket_dest_with_space(self):
+        self.assertEqual(
+            rewrite_links("[d](<drop 2.png>)", {"drop 2.png": "keep 2.png"}),
+            "[d](<keep 2.png>)")
+
+    def test_encoded_subfolder_prefix_preserved(self):
+        self.assertEqual(
+            rewrite_links("[d](Sub%20Dir/drop%20img.png)", {"drop img.png": "keep img.png"}),
+            "[d](Sub%20Dir/keep%20img.png)")
+
+    def test_end_to_end_encoded_markdown_referrer(self):
+        # canonical keep is the un-suffixed "img.png"; "img 2.png" is the drop,
+        # referenced via a percent-encoded markdown link that must be repointed.
+        with tempfile.TemporaryDirectory() as root:
+            data = b"identical"
+            for name in ("img.png", "img 2.png"):
+                with open(os.path.join(root, name), "wb") as fh:
+                    fh.write(data)
+            note = os.path.join(root, "note.md")
+            with open(note, "w") as fh:
+                fh.write("![x](img%202.png)\n")
+            plan = os.path.join(root, "plan.json")
+            scan(root, ["."], plan, use_cli=False)
+            apply(root, plan, use_git=False)
+            self.assertFalse(os.path.exists(os.path.join(root, "img 2.png")),
+                             "suffixed duplicate should be removed")
+            self.assertEqual(open(note).read(), "![x](img.png)\n",
+                             "encoded markdown link should be repointed to the keep")
+
+
 class ApplyRepointsMarkdownLinkBeforeDeleting(unittest.TestCase):
     """End-to-end: a duplicate referenced only by a markdown link must be
     repointed to the keep, then deleted — never deleted while the link dangles."""
