@@ -50,10 +50,13 @@ duplicate.
    (fast, portable, headless). When the **Obsidian CLI** (`obsidian`) is on
    PATH, the scanner *also* resolves the duplicate-set members through it —
    authoritative, per-exact-file, and it sees what Obsidian's metadataCache
-   sees (aliases, true per-copy attribution). It launches the desktop app and
-   adds ~1–2s per member, so it runs only for the handful of duplicates, with
-   silent fallback to the regex index. Pass `--no-cli` to force regex-only. The
-   table header shows which source was used.
+   sees (aliases, true per-copy attribution). It targets the vault **by name**
+   (`vault=<root folder name>`) and first verifies that name resolves to the
+   scanned root — so it can't silently answer from whichever vault is active.
+   If the vault isn't open in Obsidian (or the CLI is absent), it falls back to
+   the regex index with a notice. It launches the desktop app and adds ~1–2s
+   per member, so it runs only for the handful of duplicates. Pass `--no-cli`
+   to force regex-only. The table header shows which source was used.
 
 2. **Show the operator the table and confirm intent before deleting.** This is
    a required gate, not a courtesy — present the table (tier, keep, drop count,

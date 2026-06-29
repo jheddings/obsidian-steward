@@ -90,14 +90,50 @@ def cli_available():
     return shutil.which("obsidian") is not None
 
 
+def vault_name_for(root):
+    """The vault name the CLI expects (vault=<name>) — the root folder name."""
+    return os.path.basename(os.path.abspath(root).rstrip("/"))
+
+
+def backlinks_cmd(relpath, vault_name):
+    """The argv for `obsidian backlinks`, naming the vault when known."""
+    cmd = ["obsidian", "backlinks", f"path={relpath}", "format=json"]
+    if vault_name:
+        cmd.append(f"vault={vault_name}")
+    return cmd
+
+
+def parse_vault_path(stdout):
+    """The `path` value from `obsidian vault` tab-separated output, or None.
+    Banner lines ("Loading…", "installer out of date") are ignored."""
+    for line in stdout.splitlines():
+        if "\t" in line:
+            key, _, val = line.partition("\t")
+            if key.strip() == "path":
+                return val.strip()
+    return None
+
+
+def cli_targets_vault(root, vault_name):
+    """True only if `obsidian vault vault=<name>` reports a path equal to root.
+    Guards against trusting CLI backlinks from a different (active) vault."""
+    try:
+        out = subprocess.run(["obsidian", "vault", f"vault={vault_name}"],
+                             capture_output=True, text=True, timeout=60)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+    if out.returncode != 0:
+        return False
+    path = parse_vault_path(out.stdout)
+    return path is not None and os.path.abspath(path) == os.path.abspath(root)
+
+
 def obsidian_backlinks(relpath, vault_name=None):
     """Authoritative referrers for an EXACT file via the Obsidian CLI.
     Returns a set of referrer relpaths, or None if the CLI is unavailable or
     errored (caller falls back to the regex index). An empty set means the CLI
     answered and found no backlinks — distinct from None."""
-    cmd = ["obsidian", "backlinks", f"path={relpath}", "format=json"]
-    if vault_name:
-        cmd.append(f"vault={vault_name}")
+    cmd = backlinks_cmd(relpath, vault_name)
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -205,11 +241,17 @@ def scan(root, scope, plan_out, use_cli=True):
     # Authoritative backlinks only for duplicate-set members (keeps CLI calls
     # to a handful). Falls back to the regex index file-by-file.
     members = [p for paths in groups.values() for p in paths]
+    vault_name = vault_name_for(root)
     cli = use_cli and cli_available()
+    if cli and not cli_targets_vault(root, vault_name):
+        print(f"Obsidian CLI did not resolve vault '{vault_name}' to {root} "
+              f"(is it open in Obsidian?) — using the regex index instead.",
+              file=sys.stderr)
+        cli = False
     if cli:
         print(f"Resolving backlinks via Obsidian CLI for {len(members)} "
-              f"file(s) (launches the app)…", file=sys.stderr)
-    linked, used_cli = resolve_links(root, members, refs, None, cli)
+              f"file(s) in vault '{vault_name}' (launches the app)…", file=sys.stderr)
+    linked, used_cli = resolve_links(root, members, refs, vault_name, cli)
 
     # Canvas/base references can't be auto-repointed — guard against them.
     member_bns = {os.path.basename(p) for p in members}

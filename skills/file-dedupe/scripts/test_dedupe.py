@@ -1,7 +1,34 @@
 import os, sys, tempfile, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dedupe import rewrite_links, scan, apply
+from dedupe import (rewrite_links, scan, apply,
+                    vault_name_for, backlinks_cmd, parse_vault_path)
+
+
+class CliVaultTargeting(unittest.TestCase):
+    """The CLI resolves a vault by name and only reliably answers for the
+    OPEN/active vault, so dedupe must name the vault explicitly rather than
+    trust whichever vault happens to be active."""
+
+    def test_vault_name_is_the_root_folder_name(self):
+        self.assertEqual(vault_name_for("/a/b/Lifebook"), "Lifebook")
+
+    def test_vault_name_ignores_trailing_slash(self):
+        self.assertEqual(vault_name_for("/a/b/Lifebook/"), "Lifebook")
+
+    def test_backlinks_cmd_includes_vault_when_named(self):
+        self.assertIn("vault=Lifebook", backlinks_cmd("Attachments/x.png", "Lifebook"))
+
+    def test_backlinks_cmd_omits_vault_when_unnamed(self):
+        self.assertFalse(any(a.startswith("vault=")
+                             for a in backlinks_cmd("x.png", None)))
+
+    def test_parse_vault_path_reads_tab_separated_path(self):
+        out = "name\tLifebook\npath\t/a/b/Lifebook\nfiles\t10\n"
+        self.assertEqual(parse_vault_path(out), "/a/b/Lifebook")
+
+    def test_parse_vault_path_returns_none_when_absent(self):
+        self.assertIsNone(parse_vault_path("error: not found\n"))
 
 
 class RewriteMarkdownLinks(unittest.TestCase):
