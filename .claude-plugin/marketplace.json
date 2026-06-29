@@ -7,8 +7,7 @@
         {
             "name": "tidy",
             "source": "./",
-            "description": "Vault maintenance skills for Obsidian",
-            "version": "0.1.1"
+            "description": "Vault maintenance skills for Obsidian"
         }
     ]
 }
