@@ -532,6 +532,26 @@ def remove_file(root, rel, use_git):
         return "delete"
 
 
+def stale_notes(root, plan_path):
+    """Notes referenced by the plan whose mtime is newer than the plan file.
+    Their backlinks may have shifted since the scan, so a repoint built from the
+    old index could be wrong — caller warns and suggests a re-scan."""
+    try:
+        plan = json.load(open(plan_path))
+        plan_mtime = os.path.getmtime(plan_path)
+    except (OSError, json.JSONDecodeError):
+        return []
+    notes = {n for g in plan for n in g.get("repoint", {})}
+    stale = []
+    for n in notes:
+        try:
+            if os.path.getmtime(os.path.join(root, n)) > plan_mtime:
+                stale.append(n)
+        except OSError:
+            pass
+    return sorted(stale)
+
+
 def apply(root, plan_path, use_git, force=False):
     if use_git and not inside_work_tree(root):
         print(f"--use-git was given but {root} is not a git work tree — "
@@ -545,6 +565,12 @@ def apply(root, plan_path, use_git, force=False):
               "--use-git, or pass --force to delete anyway. (nothing changed)",
               file=sys.stderr)
         return
+    stale = stale_notes(root, plan_path)
+    if stale:
+        shown = ", ".join(stale[:5]) + ("…" if len(stale) > 5 else "")
+        print(f"⚠ {len(stale)} note(s) changed since this plan was written "
+              f"({shown}). Their links may have moved — consider re-scanning "
+              f"before applying.", file=sys.stderr)
     plan = json.load(open(plan_path))
     removed = repointed = skipped = 0
     for g in plan:

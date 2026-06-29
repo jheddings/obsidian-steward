@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dedupe import (rewrite_links, scan, apply, remove_file, classify,
                     vault_name_for, backlinks_cmd, parse_vault_path,
                     daily_matcher, daily_matcher_from, moment_format_to_regex,
-                    removal_warning, apply_hint)
+                    removal_warning, apply_hint, stale_notes)
 import subprocess
 
 
@@ -360,6 +360,23 @@ class ApplyHashesEachDropOnce(unittest.TestCase):
             finally:
                 dedupe.verify_hash = orig
             self.assertEqual(calls["drop-2.png"], 1)
+
+
+class StalePlanDetection(unittest.TestCase):
+    """apply trusts the plan's backlink index. If a referenced note changed
+    after the plan was written, its links may have moved — warn (don't trust)."""
+
+    def test_no_stale_notes_for_a_fresh_plan(self):
+        with tempfile.TemporaryDirectory() as root:
+            plan_path = _dup_vault(root)
+            self.assertEqual(stale_notes(root, plan_path), [])
+
+    def test_note_edited_after_plan_is_flagged(self):
+        with tempfile.TemporaryDirectory() as root:
+            plan_path = _dup_vault(root)
+            pm = os.path.getmtime(plan_path)
+            os.utime(os.path.join(root, "note.md"), (pm + 100, pm + 100))
+            self.assertEqual(stale_notes(root, plan_path), ["note.md"])
 
 
 if __name__ == "__main__":
