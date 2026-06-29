@@ -1,9 +1,8 @@
 ---
 name: empty-folders
 description: >-
-    Find and optionally remove empty folders in an Obsidian vault. Use when asked to
-    "find empty folders", "clean up folders", "remove empty directories", or "folder
-    cleanup".
+    Use when asked to "find empty folders", "clean up folders", "remove empty
+    directories", or "folder cleanup" in an Obsidian vault.
 ---
 
 # Empty Folders
