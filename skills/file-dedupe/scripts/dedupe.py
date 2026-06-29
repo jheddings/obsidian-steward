@@ -352,6 +352,9 @@ def scan(root, scope, plan_out, use_cli=True):
             "repoint": {n: r for n, r in repoint.items()},
         })
 
+    if not plan:
+        print(f"No duplicate sets found in {', '.join(scope)}.")
+        return plan
     print_report(plan)
     n_drop = sum(len(g["drops"]) for g in plan if not g["blocked_nonmd"])
     if n_drop:

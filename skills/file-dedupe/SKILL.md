@@ -46,6 +46,10 @@ duplicate.
    No `PATH` → whole vault. `--vault` defaults to the cwd. `.git`, `.obsidian`,
    `.trash`, `.claude` and other dotfolders are always skipped.
 
+   **No duplicates → done.** When the scan finds 0 sets it prints
+   `No duplicate sets found in <scope>` and writes no plan. Report the vault is
+   clean and stop — there is nothing to confirm or apply.
+
    **Backlinks (hybrid).** A built-in regex index over every `.md` always runs
    (fast, portable, headless). When the **Obsidian CLI** (`obsidian`) is on
    PATH, the scanner *also* resolves the duplicate-set members through it —

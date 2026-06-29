@@ -302,5 +302,25 @@ class PermanentDeleteIsGated(unittest.TestCase):
             self.assertIn(".trash", removal_warning(root))
 
 
+class CleanResultReporting(unittest.TestCase):
+    """A scan that finds nothing should say so plainly, not print an empty
+    table the agent has to interpret."""
+
+    def test_scan_reports_no_duplicates_cleanly(self):
+        import io, contextlib
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "only.png"), "wb") as fh:
+                fh.write(b"unique")
+            with open(os.path.join(root, "note.md"), "w") as fh:
+                fh.write("hello\n")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                plan = scan(root, ["."], None, use_cli=False)
+            out = buf.getvalue()
+            self.assertEqual(plan, [])
+            self.assertIn("No duplicate sets found", out)
+            self.assertNotIn("| Tier |", out)
+
+
 if __name__ == "__main__":
     unittest.main()
