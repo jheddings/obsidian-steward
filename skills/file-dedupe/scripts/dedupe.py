@@ -562,14 +562,16 @@ def apply(root, plan_path, use_git, force=False):
             print(f"{tag} SKIP — keep copy {bad}: {keep['path']}")
             skipped += 1
             continue
-        # Re-verify each drop; only collapse the ones that still match.
-        live = [d for d in g["drops"] if not verify_hash(root, d["path"], d.get("sha256"))]
+        # Re-verify each drop once; only collapse the ones that still match.
+        reasons = {d["path"]: verify_hash(root, d["path"], d.get("sha256"))
+                   for d in g["drops"]}
         for d in g["drops"]:
-            why = verify_hash(root, d["path"], d.get("sha256"))
+            why = reasons[d["path"]]
             if why == "missing":
                 print(f"{tag} (already gone) {d['path']}")
             elif why:
                 print(f"{tag} SKIP drop — {why}: {d['path']}")
+        live = [d for d in g["drops"] if not reasons[d["path"]]]
         if not live:
             continue
         # Repoint only the notes whose drops survived verification.

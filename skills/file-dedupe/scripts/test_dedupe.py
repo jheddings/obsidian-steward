@@ -341,5 +341,26 @@ class ApplyHint(unittest.TestCase):
             self.assertNotIn("--use-git", apply_hint("dedupe.py", "p.json", root))
 
 
+class ApplyHashesEachDropOnce(unittest.TestCase):
+    """apply re-hashes drops to survive an iCloud sync — but each drop should be
+    hashed once, not twice (the filter and the reporting loop shared no result)."""
+
+    def test_drop_verified_once(self):
+        import dedupe, collections
+        with tempfile.TemporaryDirectory() as root:
+            plan = _dup_vault(root)
+            calls = collections.Counter()
+            orig = dedupe.verify_hash
+            def counting(root_, rel, want):
+                calls[rel] += 1
+                return orig(root_, rel, want)
+            dedupe.verify_hash = counting
+            try:
+                dedupe.apply(root, plan, use_git=False, force=True)
+            finally:
+                dedupe.verify_hash = orig
+            self.assertEqual(calls["drop-2.png"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
