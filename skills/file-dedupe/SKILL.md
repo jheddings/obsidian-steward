@@ -20,6 +20,20 @@ This dedupes only **exact byte matches** (SHA-256). It does not touch
 near-duplicates or visually-similar images — those are judgment calls a hash
 can't make.
 
+## Install
+
+This skill ships in the `tidy` plugin. Install it to make it invocable by name
+(people usually just say "dedupe"):
+
+```
+/plugin marketplace add jheddings/obsidian-steward
+/plugin install tidy@obsidian-steward
+```
+
+Run it from inside the target vault (the working directory is the vault root,
+like the other skills here). `scripts/dedupe.py` is standalone Python 3 with no
+third-party dependencies, so it can also be invoked directly.
+
 ## When to use
 
 - Storage bloat from an Apple Notes / Evernote / Obsidian import
