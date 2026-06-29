@@ -226,5 +226,40 @@ class RemovalPrefersTrash(unittest.TestCase):
             self.assertEqual(len(trashed), 2, "existing trashed file must not be clobbered")
 
 
+def _dup_vault(root, note_text="![x](drop-2.png)\n", names=("keep.png", "drop-2.png")):
+    """A minimal vault: two byte-identical files and a note referencing a drop."""
+    for name in names:
+        with open(os.path.join(root, name), "wb") as fh:
+            fh.write(b"identical-bytes")
+    with open(os.path.join(root, "note.md"), "w") as fh:
+        fh.write(note_text)
+    plan = os.path.join(root, "plan.json")
+    scan(root, ["."], plan, use_cli=False)
+    return plan
+
+
+class UseGitFailsLoudly(unittest.TestCase):
+    """--use-git on a non-git vault must not silently no-op while reporting
+    success. The whole point of the skill is that 'removed' means removed."""
+
+    def test_remove_file_raises_when_git_rm_fails(self):
+        with tempfile.TemporaryDirectory() as root:  # not a git work tree
+            with open(os.path.join(root, "drop.png"), "wb") as fh:
+                fh.write(b"x")
+            with self.assertRaises(RuntimeError):
+                remove_file(root, "drop.png", use_git=True)
+            self.assertTrue(os.path.exists(os.path.join(root, "drop.png")),
+                            "file must remain when git rm fails")
+
+    def test_apply_refuses_use_git_outside_work_tree(self):
+        with tempfile.TemporaryDirectory() as root:  # not a git work tree
+            plan = _dup_vault(root)
+            apply(root, plan, use_git=True)
+            self.assertTrue(os.path.exists(os.path.join(root, "drop-2.png")),
+                            "nothing removed when --use-git can't apply")
+            self.assertEqual(open(os.path.join(root, "note.md")).read(),
+                             "![x](drop-2.png)\n", "no repoint when run is aborted")
+
+
 if __name__ == "__main__":
     unittest.main()

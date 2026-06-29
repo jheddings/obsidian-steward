@@ -472,20 +472,43 @@ def trash_dest(root, rel):
     return f"{stem} ({n}){ext}"
 
 
+def inside_work_tree(root):
+    """True if `root` is inside a git work tree (so `git rm` can succeed)."""
+    try:
+        out = subprocess.run(["git", "-C", root, "rev-parse", "--is-inside-work-tree"],
+                             capture_output=True, text=True)
+    except (FileNotFoundError, OSError):
+        return False
+    return out.returncode == 0 and out.stdout.strip() == "true"
+
+
 def remove_file(root, rel, use_git):
-    """Remove a dropped duplicate. Prefer recoverable removal: git rm with
-    --use-git, else move to the vault's .trash/ when it exists, else delete."""
+    """Remove a dropped duplicate, returning how it went ('git'|'trash'|'delete').
+    Prefer recoverable removal: git rm with --use-git, else move to the vault's
+    .trash/ when it exists, else delete. Raises RuntimeError if git rm fails so
+    a failed removal is never mistaken for success."""
     if use_git:
-        subprocess.run(["git", "rm", "--quiet", "--", rel], cwd=root, check=False)
+        out = subprocess.run(["git", "rm", "--quiet", "--", rel],
+                             cwd=root, capture_output=True, text=True)
+        if out.returncode != 0:
+            raise RuntimeError(out.stderr.strip() or f"git rm failed for {rel}")
+        return "git"
     elif os.path.isdir(os.path.join(root, ".trash")):
         dest = trash_dest(root, rel)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         shutil.move(os.path.join(root, rel), dest)
+        return "trash"
     else:
         os.remove(os.path.join(root, rel))
+        return "delete"
 
 
 def apply(root, plan_path, use_git):
+    if use_git and not inside_work_tree(root):
+        print(f"--use-git was given but {root} is not a git work tree — "
+              f"aborting (nothing changed). Drop the flag to use .trash/, or run "
+              f"inside the repo.", file=sys.stderr)
+        return
     plan = json.load(open(plan_path))
     removed = repointed = skipped = 0
     for g in plan:
