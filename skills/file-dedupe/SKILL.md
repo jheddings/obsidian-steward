@@ -78,6 +78,12 @@ duplicate.
    Trim the plan first if the operator excluded sets (it's plain JSON — drop
    the unwanted entries).
 
+   **Removal is recoverable by default.** With `--use-git`, drops are `git rm`'d
+   (recoverable from history). Otherwise, if the vault has a `.trash/` folder,
+   drops are *moved* there (preserving their subpath, never clobbering an
+   existing trashed file); only when there is no `.trash/` are they permanently
+   deleted.
+
 4. **Commit removal + repoints together** as one bundle, so the history never
    records a dangling embed — never delete-then-repoint across two commits.
 

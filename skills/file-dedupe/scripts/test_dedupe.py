@@ -1,7 +1,7 @@
 import os, sys, tempfile, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from dedupe import (rewrite_links, scan, apply,
+from dedupe import (rewrite_links, scan, apply, remove_file,
                     vault_name_for, backlinks_cmd, parse_vault_path)
 
 
@@ -96,6 +96,46 @@ class ApplyRepointsMarkdownLinkBeforeDeleting(unittest.TestCase):
                             "canonical copy should remain")
             self.assertEqual(open(note).read(), "See the [diagram](keep.png).\n",
                              "markdown link should be repointed, not left dangling")
+
+
+class RemovalPrefersTrash(unittest.TestCase):
+    """A removed duplicate should go to the vault's .trash/ when one exists,
+    so the operation is recoverable — only hard-delete when there's no trash."""
+
+    def _make(self, root, rel):
+        full = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "wb") as fh:
+            fh.write(b"bytes")
+        return full
+
+    def test_moves_to_trash_when_trash_exists(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.mkdir(os.path.join(root, ".trash"))
+            src = self._make(root, "Attachments/drop.png")
+            remove_file(root, "Attachments/drop.png", use_git=False)
+            self.assertFalse(os.path.exists(src), "original should be gone")
+            self.assertTrue(
+                os.path.exists(os.path.join(root, ".trash", "Attachments", "drop.png")),
+                "file should be moved under .trash/")
+
+    def test_hard_deletes_when_no_trash(self):
+        with tempfile.TemporaryDirectory() as root:
+            src = self._make(root, "Attachments/drop.png")
+            remove_file(root, "Attachments/drop.png", use_git=False)
+            self.assertFalse(os.path.exists(src), "original should be gone")
+            self.assertFalse(os.path.exists(os.path.join(root, ".trash")),
+                             ".trash should not be created when absent")
+
+    def test_trash_collision_keeps_both(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, ".trash", "Attachments"))
+            with open(os.path.join(root, ".trash", "Attachments", "drop.png"), "wb") as fh:
+                fh.write(b"older")
+            self._make(root, "Attachments/drop.png")
+            remove_file(root, "Attachments/drop.png", use_git=False)
+            trashed = os.listdir(os.path.join(root, ".trash", "Attachments"))
+            self.assertEqual(len(trashed), 2, "existing trashed file must not be clobbered")
 
 
 if __name__ == "__main__":

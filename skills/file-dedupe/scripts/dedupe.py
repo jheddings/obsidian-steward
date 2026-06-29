@@ -391,9 +391,28 @@ def verify_hash(root, rel, want):
         return f"unreadable ({e})"
 
 
+def trash_dest(root, rel):
+    """Where `rel` lands under the vault's .trash/, preserving its subpath and
+    never clobbering an existing trashed file (append ' (N)' on collision)."""
+    dest = os.path.join(root, ".trash", rel)
+    if not os.path.exists(dest):
+        return dest
+    stem, ext = os.path.splitext(dest)
+    n = 1
+    while os.path.exists(f"{stem} ({n}){ext}"):
+        n += 1
+    return f"{stem} ({n}){ext}"
+
+
 def remove_file(root, rel, use_git):
+    """Remove a dropped duplicate. Prefer recoverable removal: git rm with
+    --use-git, else move to the vault's .trash/ when it exists, else delete."""
     if use_git:
         subprocess.run(["git", "rm", "--quiet", "--", rel], cwd=root, check=False)
+    elif os.path.isdir(os.path.join(root, ".trash")):
+        dest = trash_dest(root, rel)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.move(os.path.join(root, rel), dest)
     else:
         os.remove(os.path.join(root, rel))
 
