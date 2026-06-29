@@ -221,6 +221,13 @@ def daily_matcher(root):
     return daily_matcher_from(cfg)
 
 
+def ref_pattern(bn):
+    """A regex matching `bn` as a whole filename token in a .canvas/.base file —
+    bounded by a path/quote/bracket delimiter, not as a substring of a longer
+    name (so `a.png` does not match inside `aa.png` or `a.png.bak`)."""
+    return re.compile(r"(?<![^/\"'\\(\[\s,:])" + re.escape(bn) + r"(?![\w.])")
+
+
 def nonmd_refs(root, basenames):
     """basename -> sorted[non-markdown referrers] for any .canvas/.base file
     that names one of `basenames`. apply only rewrites markdown links, so a
@@ -229,6 +236,7 @@ def nonmd_refs(root, basenames):
     hits = defaultdict(set)
     if not basenames:
         return {}
+    pats = {bn: ref_pattern(bn) for bn in basenames}
     for dp, dirs, fs in os.walk(root):
         dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith(".")]
         for f in fs:
@@ -241,7 +249,7 @@ def nonmd_refs(root, basenames):
                 continue
             rel = os.path.relpath(p, root)
             for bn in basenames:
-                if bn in txt:
+                if pats[bn].search(txt):
                     hits[bn].add(rel)
     return {bn: sorted(v) for bn, v in hits.items()}
 

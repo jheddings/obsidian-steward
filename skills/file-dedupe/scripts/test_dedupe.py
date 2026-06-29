@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dedupe import (rewrite_links, scan, apply, remove_file, classify,
                     vault_name_for, backlinks_cmd, parse_vault_path,
                     daily_matcher, daily_matcher_from, moment_format_to_regex,
-                    removal_warning, apply_hint, stale_notes)
+                    removal_warning, apply_hint, stale_notes, ref_pattern)
 import subprocess
 
 
@@ -377,6 +377,23 @@ class StalePlanDetection(unittest.TestCase):
             pm = os.path.getmtime(plan_path)
             os.utime(os.path.join(root, "note.md"), (pm + 100, pm + 100))
             self.assertEqual(stale_notes(root, plan_path), ["note.md"])
+
+
+class CanvasBlockerMatching(unittest.TestCase):
+    """The .canvas/.base blocker test must match a whole filename, not any
+    substring — a.png inside aa.png would over-block an unrelated set."""
+
+    def test_matches_whole_filename(self):
+        self.assertTrue(ref_pattern("a.png").search('"file":"notes/a.png"'))
+
+    def test_no_match_as_suffix_of_longer_basename(self):
+        self.assertFalse(ref_pattern("a.png").search('"file":"notes/aa.png"'))
+
+    def test_no_match_with_extra_extension(self):
+        self.assertFalse(ref_pattern("a.png").search('"a.png.bak"'))
+
+    def test_matches_filename_with_spaces(self):
+        self.assertTrue(ref_pattern("img 2.png").search('"Attachments/img 2.png"'))
 
 
 if __name__ == "__main__":
