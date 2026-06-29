@@ -1,16 +1,21 @@
 # obsidian-steward
 
-A Claude Code plugin with skills for maintaining Obsidian vaults. Run from your vault's
-root directory — these skills work with vault files directly, not through Obsidian
-itself.
+A Claude Code plugin with skills for maintaining Obsidian vaults. Run each skill from
+your vault's root directory. Some skills work on vault files directly; others use the
+[Obsidian CLI](https://help.obsidian.md) to read the live link graph and therefore need
+the Obsidian desktop app running with the vault open.
+
+Each skill does one thing well — see [CONTRIBUTING.md](CONTRIBUTING.md) for the design
+philosophy.
 
 ## Skills
 
-| Skill            | Description                                                                         |
-| ---------------- | ----------------------------------------------------------------------------------- |
-| `check-links`    | Find broken wikilinks, markdown relative links, and cross-vault `obsidian://` links |
-| `orphaned-files` | Find unreferenced files in the attachments folder or any specified folder           |
-| `empty-folders`  | Find and optionally remove empty directories                                        |
+| Skill            | What it does                                                                       | Obsidian running? |
+| ---------------- | ---------------------------------------------------------------------------------- | ----------------- |
+| `check-links`    | Find broken wikilinks, embeds, markdown links, and cross-vault `obsidian://` links | Yes               |
+| `orphaned-files` | Find (and optionally remove) files in a folder that no note references             | Yes               |
+| `file-dedupe`    | Collapse byte-identical duplicate files, repointing every backlink first           | Optional          |
+| `empty-folders`  | Find and optionally remove empty directories                                       | No                |
 
 ## Related
 

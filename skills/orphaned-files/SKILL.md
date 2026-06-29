@@ -1,10 +1,10 @@
 ---
 name: orphaned-files
 description: >-
-    Find files in a vault folder that are not referenced by any note. By default checks
-    the configured attachments folder; the user can specify any folder. Use when asked
-    to "find orphaned files", "find orphaned attachments", "find abandoned files",
-    "clean up attachments", or "unused files".
+    Use when asked to "find orphaned files", "find orphaned attachments", "find
+    abandoned files", "clean up attachments", or "unused files" in an Obsidian vault —
+    files in a folder that no note references. Defaults to the configured attachments
+    folder; the user can name any folder.
 ---
 
 # Orphaned Files
@@ -78,9 +78,9 @@ folder path** (e.g. `Attachments` or `Meta/Files`).
 
 ## Tool Usage — MANDATORY
 
-- **Use Bash** only to invoke the `obsidian` CLI (`obsidian vault`, `obsidian orphans`),
-  always with `vault=<VAULT_NAME>`. Do NOT use Bash for `grep`, `sed`, `awk`, `cat`, or
-  file searching.
+- **Use Bash** only to invoke the `obsidian` CLI (`obsidian vault`, `obsidian orphans`,
+  `obsidian delete`), always with `vault=<VAULT_NAME>`. Do NOT use Bash for `grep`,
+  `sed`, `awk`, `cat`, or file searching.
 - **Use Glob** to list files in the target folder.
 - **Use Read** to read file contents (including the orphans output file).
 
@@ -124,14 +124,24 @@ If orphaned files were found, ask:
 > "Found N orphaned file(s) in {TARGET_FOLDER} (total size: X). Would you like to delete
 > them? (yes / no / let me review first)"
 
-Only delete after explicit user confirmation. Move files to the vault's `.trash/` folder
-if it exists, otherwise use `rm` for confirmed files.
+Only delete after explicit user confirmation. Delete each confirmed file with the
+Obsidian CLI:
+
+```
+obsidian delete path=<vault-relative-path> vault=<VAULT_NAME>
+```
+
+`obsidian delete` honors the vault's own "Deleted files" setting (system trash, the
+vault's local `.trash/` folder, or permanent) — so deletions follow whatever recovery
+behavior the user configured in Obsidian, instead of this skill guessing. Pass the
+`permanent` flag only if the user explicitly asks to skip the trash.
 
 ## Safety Rules
 
 1. **Report before acting.** Always present the full list before offering to delete.
-2. **Prefer trash over delete.** If `.trash/` exists in the vault root, move files there
-   instead of permanently deleting.
+2. **Deletion goes through Obsidian.** Use `obsidian delete`, which routes through the
+   vault's configured trash. Never `rm` files directly, and never pass `permanent`
+   unless the user explicitly asks for it.
 3. **Respect user choice.** If the user declines, do nothing.
 4. **Never modify note content.** This skill finds unreferenced files — it does not
    rewrite links or edit notes.
