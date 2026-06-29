@@ -5,7 +5,9 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dedupe import (rewrite_links, scan, apply, remove_file, classify,
                     vault_name_for, backlinks_cmd, parse_vault_path,
-                    daily_matcher, daily_matcher_from, moment_format_to_regex)
+                    daily_matcher, daily_matcher_from, moment_format_to_regex,
+                    removal_warning, apply_hint, stale_notes, ref_pattern)
+import subprocess
 
 
 class DailyNoteDetectionFromConfig(unittest.TestCase):
@@ -153,7 +155,7 @@ class MarkdownLinkEdgeCases(unittest.TestCase):
                 fh.write("![x](img%202.png)\n")
             plan = os.path.join(root, "plan.json")
             scan(root, ["."], plan, use_cli=False)
-            apply(root, plan, use_git=False)
+            apply(root, plan, use_git=False, force=True)
             self.assertFalse(os.path.exists(os.path.join(root, "img 2.png")),
                              "suffixed duplicate should be removed")
             self.assertEqual(open(note).read(), "![x](img.png)\n",
@@ -176,7 +178,7 @@ class ApplyRepointsMarkdownLinkBeforeDeleting(unittest.TestCase):
 
             plan = os.path.join(root, "plan.json")
             scan(root, ["."], plan, use_cli=False)
-            apply(root, plan, use_git=False)
+            apply(root, plan, use_git=False, force=True)
 
             self.assertFalse(os.path.exists(os.path.join(root, "drop-2.png")),
                              "dropped duplicate should be removed")
@@ -224,6 +226,174 @@ class RemovalPrefersTrash(unittest.TestCase):
             remove_file(root, "Attachments/drop.png", use_git=False)
             trashed = os.listdir(os.path.join(root, ".trash", "Attachments"))
             self.assertEqual(len(trashed), 2, "existing trashed file must not be clobbered")
+
+
+def _dup_vault(root, note_text="![x](drop-2.png)\n", names=("keep.png", "drop-2.png")):
+    """A minimal vault: two byte-identical files and a note referencing a drop."""
+    for name in names:
+        with open(os.path.join(root, name), "wb") as fh:
+            fh.write(b"identical-bytes")
+    with open(os.path.join(root, "note.md"), "w") as fh:
+        fh.write(note_text)
+    plan = os.path.join(root, "plan.json")
+    scan(root, ["."], plan, use_cli=False)
+    return plan
+
+
+class UseGitFailsLoudly(unittest.TestCase):
+    """--use-git on a non-git vault must not silently no-op while reporting
+    success. The whole point of the skill is that 'removed' means removed."""
+
+    def test_remove_file_raises_when_git_rm_fails(self):
+        with tempfile.TemporaryDirectory() as root:  # not a git work tree
+            with open(os.path.join(root, "drop.png"), "wb") as fh:
+                fh.write(b"x")
+            with self.assertRaises(RuntimeError):
+                remove_file(root, "drop.png", use_git=True)
+            self.assertTrue(os.path.exists(os.path.join(root, "drop.png")),
+                            "file must remain when git rm fails")
+
+    def test_apply_refuses_use_git_outside_work_tree(self):
+        with tempfile.TemporaryDirectory() as root:  # not a git work tree
+            plan = _dup_vault(root)
+            apply(root, plan, use_git=True)
+            self.assertTrue(os.path.exists(os.path.join(root, "drop-2.png")),
+                            "nothing removed when --use-git can't apply")
+            self.assertEqual(open(os.path.join(root, "note.md")).read(),
+                             "![x](drop-2.png)\n", "no repoint when run is aborted")
+
+
+class PermanentDeleteIsGated(unittest.TestCase):
+    """The irreversible path (no .trash/, no --use-git) must be opt-in via
+    --force, and the operator must be warned about it at scan time."""
+
+    def test_refuses_permanent_delete_without_force(self):
+        with tempfile.TemporaryDirectory() as root:  # no .trash, not git
+            plan = _dup_vault(root)
+            apply(root, plan, use_git=False, force=False)
+            self.assertTrue(os.path.exists(os.path.join(root, "drop-2.png")),
+                            "must not permanently delete without --force")
+            self.assertEqual(open(os.path.join(root, "note.md")).read(),
+                             "![x](drop-2.png)\n", "no repoint when aborted")
+
+    def test_force_allows_permanent_delete(self):
+        with tempfile.TemporaryDirectory() as root:
+            plan = _dup_vault(root)
+            apply(root, plan, use_git=False, force=True)
+            self.assertFalse(os.path.exists(os.path.join(root, "drop-2.png")))
+            self.assertEqual(open(os.path.join(root, "note.md")).read(),
+                             "![x](keep.png)\n")
+
+    def test_trash_does_not_require_force(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.mkdir(os.path.join(root, ".trash"))
+            plan = _dup_vault(root)
+            apply(root, plan, use_git=False, force=False)
+            self.assertFalse(os.path.exists(os.path.join(root, "drop-2.png")))
+            self.assertTrue(os.path.exists(
+                os.path.join(root, ".trash", "drop-2.png")))
+
+    def test_warning_flags_permanent_when_no_trash_no_git(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertIn("PERMANENT", removal_warning(root).upper())
+
+    def test_warning_mentions_trash_when_present(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.mkdir(os.path.join(root, ".trash"))
+            self.assertIn(".trash", removal_warning(root))
+
+
+class CleanResultReporting(unittest.TestCase):
+    """A scan that finds nothing should say so plainly, not print an empty
+    table the agent has to interpret."""
+
+    def test_scan_reports_no_duplicates_cleanly(self):
+        import io, contextlib
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "only.png"), "wb") as fh:
+                fh.write(b"unique")
+            with open(os.path.join(root, "note.md"), "w") as fh:
+                fh.write("hello\n")
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                plan = scan(root, ["."], None, use_cli=False)
+            out = buf.getvalue()
+            self.assertEqual(plan, [])
+            self.assertIn("No duplicate sets found", out)
+            self.assertNotIn("| Tier |", out)
+
+
+class ApplyHint(unittest.TestCase):
+    """The 'apply with:' hint must echo --vault (plan paths are vault-relative)
+    and steer toward the recoverable form when the vault is a git repo."""
+
+    def test_hint_echoes_vault(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertIn(f"--vault {root}", apply_hint("dedupe.py", "p.json", root))
+
+    def test_hint_suggests_use_git_in_repo(self):
+        with tempfile.TemporaryDirectory() as root:
+            subprocess.run(["git", "init", "-q", root], check=True)
+            self.assertIn("--use-git", apply_hint("dedupe.py", "p.json", root))
+
+    def test_hint_omits_use_git_outside_repo(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertNotIn("--use-git", apply_hint("dedupe.py", "p.json", root))
+
+
+class ApplyHashesEachDropOnce(unittest.TestCase):
+    """apply re-hashes drops to survive an iCloud sync — but each drop should be
+    hashed once, not twice (the filter and the reporting loop shared no result)."""
+
+    def test_drop_verified_once(self):
+        import dedupe, collections
+        with tempfile.TemporaryDirectory() as root:
+            plan = _dup_vault(root)
+            calls = collections.Counter()
+            orig = dedupe.verify_hash
+            def counting(root_, rel, want):
+                calls[rel] += 1
+                return orig(root_, rel, want)
+            dedupe.verify_hash = counting
+            try:
+                dedupe.apply(root, plan, use_git=False, force=True)
+            finally:
+                dedupe.verify_hash = orig
+            self.assertEqual(calls["drop-2.png"], 1)
+
+
+class StalePlanDetection(unittest.TestCase):
+    """apply trusts the plan's backlink index. If a referenced note changed
+    after the plan was written, its links may have moved — warn (don't trust)."""
+
+    def test_no_stale_notes_for_a_fresh_plan(self):
+        with tempfile.TemporaryDirectory() as root:
+            plan_path = _dup_vault(root)
+            self.assertEqual(stale_notes(root, plan_path), [])
+
+    def test_note_edited_after_plan_is_flagged(self):
+        with tempfile.TemporaryDirectory() as root:
+            plan_path = _dup_vault(root)
+            pm = os.path.getmtime(plan_path)
+            os.utime(os.path.join(root, "note.md"), (pm + 100, pm + 100))
+            self.assertEqual(stale_notes(root, plan_path), ["note.md"])
+
+
+class CanvasBlockerMatching(unittest.TestCase):
+    """The .canvas/.base blocker test must match a whole filename, not any
+    substring — a.png inside aa.png would over-block an unrelated set."""
+
+    def test_matches_whole_filename(self):
+        self.assertTrue(ref_pattern("a.png").search('"file":"notes/a.png"'))
+
+    def test_no_match_as_suffix_of_longer_basename(self):
+        self.assertFalse(ref_pattern("a.png").search('"file":"notes/aa.png"'))
+
+    def test_no_match_with_extra_extension(self):
+        self.assertFalse(ref_pattern("a.png").search('"a.png.bak"'))
+
+    def test_matches_filename_with_spaces(self):
+        self.assertTrue(ref_pattern("img 2.png").search('"Attachments/img 2.png"'))
 
 
 if __name__ == "__main__":

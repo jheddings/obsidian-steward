@@ -221,6 +221,13 @@ def daily_matcher(root):
     return daily_matcher_from(cfg)
 
 
+def ref_pattern(bn):
+    """A regex matching `bn` as a whole filename token in a .canvas/.base file —
+    bounded by a path/quote/bracket delimiter, not as a substring of a longer
+    name (so `a.png` does not match inside `aa.png` or `a.png.bak`)."""
+    return re.compile(r"(?<![^/\"'\\(\[\s,:])" + re.escape(bn) + r"(?![\w.])")
+
+
 def nonmd_refs(root, basenames):
     """basename -> sorted[non-markdown referrers] for any .canvas/.base file
     that names one of `basenames`. apply only rewrites markdown links, so a
@@ -229,6 +236,7 @@ def nonmd_refs(root, basenames):
     hits = defaultdict(set)
     if not basenames:
         return {}
+    pats = {bn: ref_pattern(bn) for bn in basenames}
     for dp, dirs, fs in os.walk(root):
         dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith(".")]
         for f in fs:
@@ -241,7 +249,7 @@ def nonmd_refs(root, basenames):
                 continue
             rel = os.path.relpath(p, root)
             for bn in basenames:
-                if bn in txt:
+                if pats[bn].search(txt):
                     hits[bn].add(rel)
     return {bn: sorted(v) for bn, v in hits.items()}
 
@@ -282,6 +290,16 @@ def resolve_links(root, paths, refs, vault_name, use_cli):
             used_cli = True
             out[bn] = sorted(got)
     return out, used_cli
+
+
+def apply_hint(prog, plan_out, root):
+    """The 'apply with:' command to print after a scan — echoing the same
+    --vault (plan paths are vault-relative) and steering toward the recoverable
+    --use-git form when the vault is a git work tree."""
+    cmd = f"{prog} --apply {plan_out} --vault {root}"
+    if inside_work_tree(root):
+        cmd += " --use-git"
+    return cmd
 
 
 def scan(root, scope, plan_out, use_cli=True):
@@ -352,11 +370,18 @@ def scan(root, scope, plan_out, use_cli=True):
             "repoint": {n: r for n, r in repoint.items()},
         })
 
+    if not plan:
+        print(f"No duplicate sets found in {', '.join(scope)}.")
+        return plan
     print_report(plan)
+    n_drop = sum(len(g["drops"]) for g in plan if not g["blocked_nonmd"])
+    if n_drop:
+        print("\n" + removal_warning(root))
     if plan_out:
         json.dump(plan, open(plan_out, "w"), indent=2)
         print(f"\nPlan written to {plan_out}")
-        print(f"Review the table above, then apply with:\n  {sys.argv[0]} --apply {plan_out}")
+        print(f"Review the table above, then apply with:\n  "
+              f"{apply_hint(sys.argv[0], plan_out, root)}")
     return plan
 
 
@@ -472,20 +497,88 @@ def trash_dest(root, rel):
     return f"{stem} ({n}){ext}"
 
 
+def inside_work_tree(root):
+    """True if `root` is inside a git work tree (so `git rm` can succeed)."""
+    try:
+        out = subprocess.run(["git", "-C", root, "rev-parse", "--is-inside-work-tree"],
+                             capture_output=True, text=True)
+    except (FileNotFoundError, OSError):
+        return False
+    return out.returncode == 0 and out.stdout.strip() == "true"
+
+
+def removal_warning(root):
+    """One-line heads-up for the scan summary describing what `apply` will do to
+    dropped files, so the operator sees the recovery semantics before approving."""
+    if os.path.isdir(os.path.join(root, ".trash")):
+        return "Removal: drops move to .trash/ (recoverable)."
+    if inside_work_tree(root):
+        return ("Removal: no .trash/ — pass --use-git for a recoverable git rm; "
+                "otherwise drops are PERMANENTLY deleted (--force required).")
+    return ("⚠ Removal: no .trash/ and not a git repo — apply will "
+            "PERMANENTLY delete drops. Create a .trash/ folder, or pass --force.")
+
+
 def remove_file(root, rel, use_git):
-    """Remove a dropped duplicate. Prefer recoverable removal: git rm with
-    --use-git, else move to the vault's .trash/ when it exists, else delete."""
+    """Remove a dropped duplicate, returning how it went ('git'|'trash'|'delete').
+    Prefer recoverable removal: git rm with --use-git, else move to the vault's
+    .trash/ when it exists, else delete. Raises RuntimeError if git rm fails so
+    a failed removal is never mistaken for success."""
     if use_git:
-        subprocess.run(["git", "rm", "--quiet", "--", rel], cwd=root, check=False)
+        out = subprocess.run(["git", "rm", "--quiet", "--", rel],
+                             cwd=root, capture_output=True, text=True)
+        if out.returncode != 0:
+            raise RuntimeError(out.stderr.strip() or f"git rm failed for {rel}")
+        return "git"
     elif os.path.isdir(os.path.join(root, ".trash")):
         dest = trash_dest(root, rel)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         shutil.move(os.path.join(root, rel), dest)
+        return "trash"
     else:
         os.remove(os.path.join(root, rel))
+        return "delete"
 
 
-def apply(root, plan_path, use_git):
+def stale_notes(root, plan_path):
+    """Notes referenced by the plan whose mtime is newer than the plan file.
+    Their backlinks may have shifted since the scan, so a repoint built from the
+    old index could be wrong — caller warns and suggests a re-scan."""
+    try:
+        plan = json.load(open(plan_path))
+        plan_mtime = os.path.getmtime(plan_path)
+    except (OSError, json.JSONDecodeError):
+        return []
+    notes = {n for g in plan for n in g.get("repoint", {})}
+    stale = []
+    for n in notes:
+        try:
+            if os.path.getmtime(os.path.join(root, n)) > plan_mtime:
+                stale.append(n)
+        except OSError:
+            pass
+    return sorted(stale)
+
+
+def apply(root, plan_path, use_git, force=False):
+    if use_git and not inside_work_tree(root):
+        print(f"--use-git was given but {root} is not a git work tree — "
+              f"aborting (nothing changed). Drop the flag to use .trash/, or run "
+              f"inside the repo.", file=sys.stderr)
+        return
+    has_trash = os.path.isdir(os.path.join(root, ".trash"))
+    if not use_git and not has_trash and not force:
+        print("Refusing to PERMANENTLY delete dropped files: this vault has no "
+              ".trash/ and --use-git was not given. Create a .trash/ folder, use "
+              "--use-git, or pass --force to delete anyway. (nothing changed)",
+              file=sys.stderr)
+        return
+    stale = stale_notes(root, plan_path)
+    if stale:
+        shown = ", ".join(stale[:5]) + ("…" if len(stale) > 5 else "")
+        print(f"⚠ {len(stale)} note(s) changed since this plan was written "
+              f"({shown}). Their links may have moved — consider re-scanning "
+              f"before applying.", file=sys.stderr)
     plan = json.load(open(plan_path))
     removed = repointed = skipped = 0
     for g in plan:
@@ -503,14 +596,16 @@ def apply(root, plan_path, use_git):
             print(f"{tag} SKIP — keep copy {bad}: {keep['path']}")
             skipped += 1
             continue
-        # Re-verify each drop; only collapse the ones that still match.
-        live = [d for d in g["drops"] if not verify_hash(root, d["path"], d.get("sha256"))]
+        # Re-verify each drop once; only collapse the ones that still match.
+        reasons = {d["path"]: verify_hash(root, d["path"], d.get("sha256"))
+                   for d in g["drops"]}
         for d in g["drops"]:
-            why = verify_hash(root, d["path"], d.get("sha256"))
+            why = reasons[d["path"]]
             if why == "missing":
                 print(f"{tag} (already gone) {d['path']}")
             elif why:
                 print(f"{tag} SKIP drop — {why}: {d['path']}")
+        live = [d for d in g["drops"] if not reasons[d["path"]]]
         if not live:
             continue
         # Repoint only the notes whose drops survived verification.
@@ -528,10 +623,11 @@ def apply(root, plan_path, use_git):
                 open(p, "w", encoding="utf-8").write(new)
                 repointed += 1
                 print(f"{tag} repointed {len(mapping)} link(s) in {note}")
+        verb = {"git": "git-rm'd", "trash": "trashed", "delete": "deleted"}
         for d in live:
-            remove_file(root, d["path"], use_git)
+            how = remove_file(root, d["path"], use_git)
             removed += 1
-            print(f"{tag} removed {d['path']}")
+            print(f"{tag} {verb[how]} {d['path']}")
     print(f"\nDone: {removed} file(s) removed, {repointed} note(s) repointed, "
           f"{skipped} set(s) skipped.")
 
@@ -546,10 +642,12 @@ def main():
                     help="skip the Obsidian CLI; use the regex index only")
     ap.add_argument("--apply", metavar="PLAN", help="execute a reviewed JSON plan")
     ap.add_argument("--use-git", action="store_true", help="remove via 'git rm' (apply mode)")
+    ap.add_argument("--force", action="store_true",
+                    help="permit permanent deletion when there's no .trash/ and not --use-git")
     a = ap.parse_args()
     root = os.path.abspath(a.vault)
     if a.apply:
-        apply(root, a.apply, a.use_git)
+        apply(root, a.apply, a.use_git, force=a.force)
     else:
         scan(root, a.scope or ["."], a.plan_out, use_cli=not a.no_cli)
 
