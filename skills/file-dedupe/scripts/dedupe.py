@@ -38,7 +38,8 @@ from collections import defaultdict
 IGNORE_DIRS = {".git", ".obsidian", ".trash", ".claude", ".smart-env"}
 # Binary/media we care about deduping; None = hash everything except .md.
 LINK_RE = re.compile(r"(!?)\[\[([^\]]+?)\]\]")          # wikilinks / embeds
-MD_LINK_RE = re.compile(r"\]\(([^)]+?)\)")               # markdown links
+MD_LINK_RE = re.compile(r"\]\(([^)]+?)\)")               # markdown links (index)
+MD_REWRITE_RE = re.compile(r"(!?)\[([^\]]*)\]\(([^)]+?)\)")  # markdown links (rewrite)
 
 
 def walk_files(root, scope):
@@ -303,7 +304,10 @@ def print_report(plan):
 
 
 def rewrite_links(text, mapping):
-    """Replace link targets whose basename matches a mapping key."""
+    """Replace link targets whose basename matches a mapping key. Both
+    wikilinks/embeds and markdown links are rewritten; each keeps its original
+    syntax — only the target's basename is swapped, so a vault that uses
+    markdown links stays in markdown form."""
     def wl(m):
         bang, tgt = m.group(1), m.group(2)
         head = tgt.split("|", 1)
@@ -315,7 +319,20 @@ def rewrite_links(text, mapping):
             rebuilt += ("|" + head[1] if len(head) > 1 else "")
             return f"{bang}[[{rebuilt}]]"
         return m.group(0)
-    return LINK_RE.sub(wl, text)
+
+    def ml(m):
+        bang, cap, tgt = m.group(1), m.group(2), m.group(3)
+        core = tgt.split("#", 1)
+        path = core[0].strip()
+        bn = os.path.basename(path)
+        if bn in mapping:
+            newpath = path[: len(path) - len(bn)] + mapping[bn]
+            rebuilt = newpath + ("#" + core[1] if len(core) > 1 else "")
+            return f"{bang}[{cap}]({rebuilt})"
+        return m.group(0)
+
+    text = LINK_RE.sub(wl, text)        # wikilinks/embeds first
+    return MD_REWRITE_RE.sub(ml, text)  # then markdown links (won't match [[..]])
 
 
 def verify_hash(root, rel, want):
